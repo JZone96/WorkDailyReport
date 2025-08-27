@@ -18,7 +18,7 @@ Lo scopo è produrre un **report quotidiano** (in formato Markdown/CSV) che docu
   - `aw-watcher-window`
   - `aw-watcher-afk`
   - *(Opzionale)* `aw-watcher-web` (Chrome/Firefox)
-- **SQLite** (default) o **DuckDB**
+- **SQLite**
 - **Git CLI** nel PATH *(oppure `LibGit2Sharp` via NuGet)*
 - **Serilog** (logging su file)
 - *(Opzionale)* Editor Visual Studio o VS Code (per riconoscimento sessioni coding)
