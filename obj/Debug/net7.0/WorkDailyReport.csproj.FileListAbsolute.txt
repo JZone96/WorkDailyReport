@@ -62,3 +62,4 @@ D:\gitProjects\WorkDailyReport\obj\Debug\net7.0\WorkDailyReport.pdb
 D:\gitProjects\WorkDailyReport\obj\Debug\net7.0\WorkDailyReport.genruntimeconfig.cache
 D:\gitProjects\WorkDailyReport\obj\Debug\net7.0\ref\WorkDailyReport.dll
 D:\gitProjects\WorkDailyReport\bin\Debug\net7.0\config\appsettings.json
+D:\gitProjects\WorkDailyReport\bin\Debug\net7.0\Microsoft.Extensions.Http.dll

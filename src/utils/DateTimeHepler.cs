@@ -1,36 +1,22 @@
-using System;
-using System.Globalization;
+using WorkDailyReport.Config;
 
-namespace WorkDailyReport.Utils
+namespace WorkDailyReport.utils;
+
+public static class DateTimeHepler
 {
-    public static class DateTimeHelpers
+    public static (DateTimeOffset since, DateTimeOffset until) TodayWindow(WorkHoursOptions opt)
     {
-        /// <summary>
-        /// Converte un DateTimeOffset in stringa ISO-8601 round-trip (compatibile con ActivityWatch).
-        /// Esempio: 2025-08-27T09:00:00.0000000+02:00
-        /// </summary>
-        public static string ToIso8601(DateTimeOffset dt) =>
-            dt.ToString("O", CultureInfo.InvariantCulture);
+        var tz = TimeZoneInfo.FindSystemTimeZoneById(opt.TimeZone);
 
-        /// <summary>
-        /// Esegue parsing sicuro di una stringa ISO-8601 round-trip.
-        /// Restituisce null se il formato non è valido.
-        /// </summary>
-        public static DateTimeOffset? ParseIso8601(string s)
-        {
-            if (string.IsNullOrWhiteSpace(s)) return null;
+        var todayLocal = TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, tz).Date;
 
-            if (DateTimeOffset.TryParseExact(
-                    s,
-                    "O",  // round-trip format
-                    CultureInfo.InvariantCulture,
-                    DateTimeStyles.None,
-                    out var result))
-            {
-                return result;
-            }
+        var startLocal = todayLocal.Add(TimeOnly.Parse(opt.Start).ToTimeSpan());
+        var endLocal   = todayLocal.Add(TimeOnly.Parse(opt.End).ToTimeSpan());
 
-            return null;
-        }
+        // Offset corretto per la data specifica (gestisce l’ora legale)
+        var since = new DateTimeOffset(startLocal, tz.GetUtcOffset(startLocal));
+        var until = new DateTimeOffset(endLocal,   tz.GetUtcOffset(endLocal));
+
+        return (since, until);
     }
 }
