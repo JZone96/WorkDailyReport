@@ -4,6 +4,7 @@ using WorkDailyReport.Config;
 using WorkDailyReport.utils;
 using System.Globalization;
 using System.Linq;
+using WorkDailyReport.Calendar;
 
 namespace WorkDailyReport.ETL;
 
@@ -11,15 +12,18 @@ public sealed class DailyRunner
 {
     private readonly IActivityWatchClient _aw;
     private readonly IGitCommitSource _gitCommitSource;
+    private readonly ICalendarEventSource _calendarSource;
     private readonly WorkReportOptions _opt;
 
     public DailyRunner(
         IActivityWatchClient aw,
         IGitCommitSource gitCommitSource,
+        ICalendarEventSource calendarSource,
         IOptions<WorkReportOptions> opt)
     {
         _aw = aw;
         _gitCommitSource = gitCommitSource;
+        _calendarSource = calendarSource;
         _opt = opt.Value;
     }
 
@@ -59,7 +63,7 @@ public sealed class DailyRunner
         foreach (var ev in normalizedEvents.Take(10))
         {
             var codingTag = ev.IsCoding ? "[coding]" : string.Empty;
-            Console.WriteLine($"- {ev.Start:t}-{ev.End:t} {ev.App} {codingTag} | {ev.Title}");
+            Console.WriteLine($"- {ev.TsStart:t}-{ev.TsEnd:t} {ev.App} {codingTag} | {ev.Title}");
         }
 
         // Git: estrai commit dal root configurato e ordinali cronologicamente
@@ -75,6 +79,84 @@ public sealed class DailyRunner
             Console.WriteLine($"Repo {group.Key} ({group.Count()} commit)");
             foreach (var commit in group)
                 Console.WriteLine($"  [{commit.Timestamp:t}] {commit.Author} {commit.Message} ({commit.Hash[..7]})");
+        }
+
+        var calendarEvents = await _calendarSource.GetEventsAsync(since, untilExclusive, ct);
+        Console.WriteLine($"Eventi calendario Outlook: {calendarEvents.Count}");
+        foreach (var cal in calendarEvents.Take(10))
+        {
+            Console.WriteLine($"- {cal.Start:yyyy-MM-dd HH:mm} → {cal.End:HH:mm} {cal.Title} @ {cal.Location}");
+            normalizedEvents.Add(new NormalizedEvent(
+                cal.Start,
+                cal.End,
+                source: "Outlook",
+                kind: "Calendar",
+                app: "Outlook",
+                title: cal.Title,
+                url: cal.Location,
+                isCoding: false));
+        }
+
+        var focusBlocks = BuildFocusBlocks(normalizedEvents);
+        var focusBuffer = TimeSpan.FromMinutes(2);
+        TagEventsWithFocusBlocks(normalizedEvents, focusBlocks, focusBuffer);
+
+        Console.WriteLine();
+        if (focusBlocks.Count == 0)
+        {
+            Console.WriteLine("Blocchi focus IDE: nessuno rilevato.");
+        }
+        else
+        {
+            Console.WriteLine("Blocchi focus guidati dall'IDE:");
+            foreach (var block in focusBlocks)
+            {
+                var relatedCount = CountEventsForBlock(normalizedEvents, block, focusBuffer);
+
+                Console.WriteLine(
+                    $"- {block.Start:HH:mm}-{block.End:HH:mm} {block.Label} ({block.Duration.TotalMinutes:F0} min, {relatedCount} eventi)");
+            }
+
+            Console.WriteLine();
+            Console.WriteLine("Racconto blocchi IDE:");
+            foreach (var block in focusBlocks)
+            {
+                var blockEvents = GetEventsForBlock(normalizedEvents, block, focusBuffer);
+                var primaryApp = blockEvents
+                    .Where(e => !string.IsNullOrWhiteSpace(e.App))
+                    .GroupBy(e => e.App!)
+                    .Select(g => new { App = g.Key, Minutes = g.Sum(ev => ev.Duration.TotalMinutes) })
+                    .OrderByDescending(x => x.Minutes)
+                    .FirstOrDefault()?.App ?? "l'IDE";
+
+                var sampleTitles = blockEvents
+                    .Where(e => !string.IsNullOrWhiteSpace(e.Title))
+                    .Select(e => e.Title!.Trim())
+                    .Distinct()
+                    .Take(2)
+                    .ToList();
+
+                var commitsInBlock = commits.Count(c => c.Timestamp >= block.Start && c.Timestamp <= block.End);
+                var commitText = commitsInBlock > 0 ? $" e registrato {commitsInBlock} commit" : string.Empty;
+                var titleText = sampleTitles.Count switch
+                {
+                    0 => string.Empty,
+                    1 => $" (es. {sampleTitles[0]})",
+                    _ => $" (es. {sampleTitles[0]}, {sampleTitles[1]})"
+                };
+
+                Console.WriteLine(
+                    $"  • {block.Label}: {block.Start:HH:mm}-{block.End:HH:mm} (~{block.Duration.TotalMinutes:F0}m) in {primaryApp}{titleText}{commitText}.");
+            }
+        }
+
+        var uniformRows = BuildUniformRows(normalizedEvents, commits);
+        Console.WriteLine();
+        Console.WriteLine("Eventi normalizzati (schema ts_start/ts_end/duration/app/title/url):");
+        foreach (var row in uniformRows.Take(10))
+        {
+            Console.WriteLine(
+                $"- {row.TsStart:yyyy-MM-dd HH:mm} → {row.TsEnd:HH:mm} | {row.App} | {row.Title} | dur={row.DurationSeconds:F0}s | {row.Source}/{row.Kind}{FormatProjectTag(row.ProjectTag)}");
         }
 
         var associations = CommitAssociator.Associate(
@@ -93,7 +175,7 @@ public sealed class DailyRunner
             }
 
             Console.WriteLine($"  {assoc.Commit.Timestamp:t} {assoc.Commit.RepoName} {assoc.Commit.Message}");
-            Console.WriteLine($"      ↳ {assoc.EditorEvent.Start:t}-{assoc.EditorEvent.End:t} {assoc.EditorEvent.App} | {assoc.EditorEvent.Title}");
+            Console.WriteLine($"      ↳ {assoc.EditorEvent.TsStart:t}-{assoc.EditorEvent.TsEnd:t} {assoc.EditorEvent.App} | {assoc.EditorEvent.Title}");
         }
     }
 
@@ -171,5 +253,177 @@ public sealed class DailyRunner
         }
 
         return list;
+    }
+
+    private static string FormatProjectTag(string tag) =>
+        string.IsNullOrWhiteSpace(tag) ? string.Empty : $" [proj: {tag}]";
+
+    private static List<NormalizedRow> BuildUniformRows(
+        List<NormalizedEvent> normalizedEvents,
+        IReadOnlyList<CommitEvent> commits)
+    {
+        var rows = new List<NormalizedRow>(normalizedEvents.Count + commits.Count);
+        rows.AddRange(normalizedEvents.Select(e => e.ToRow()));
+
+        foreach (var commit in commits)
+        {
+            rows.Add(new NormalizedRow(
+                commit.Timestamp,
+                commit.Timestamp,
+                0,
+                commit.RepoName,
+                commit.Message,
+                commit.Hash,
+                "Git",
+                "Commit",
+                string.Empty));
+        }
+
+        return rows
+            .OrderBy(r => r.TsStart)
+            .ToList();
+    }
+
+    private static int CountEventsForBlock(
+        List<NormalizedEvent> events,
+        FocusBlock block,
+        TimeSpan includeBuffer) =>
+        GetEventsForBlock(events, block, includeBuffer).Count;
+
+    private static List<NormalizedEvent> GetEventsForBlock(
+        List<NormalizedEvent> events,
+        FocusBlock block,
+        TimeSpan includeBuffer)
+    {
+        var blockStart = block.Start - includeBuffer;
+        var blockEnd = block.End + includeBuffer;
+
+        return events
+            .Where(e => e.ProjectTag == block.Label &&
+                        e.TsEnd > blockStart &&
+                        e.TsStart < blockEnd)
+            .ToList();
+    }
+
+    private static List<FocusBlock> BuildFocusBlocks(List<NormalizedEvent> events)
+    {
+        var coding = events
+            .Where(e => e.IsCoding)
+            .OrderBy(e => e.TsStart)
+            .ToList();
+
+        var result = new List<FocusBlock>();
+        if (coding.Count == 0)
+            return result;
+
+        var maxGap = TimeSpan.FromMinutes(5);
+        FocusBlock? current = null;
+
+        foreach (var ev in coding)
+        {
+            if (current is null)
+            {
+                current = new FocusBlock(ev.TsStart, ev.TsEnd, ExtractProjectLabel(ev));
+                continue;
+            }
+
+            if (ev.TsStart - current.End <= maxGap)
+            {
+                current.Extend(ev.TsEnd);
+                current.TryUpdateLabel(ExtractProjectLabel(ev));
+            }
+            else
+            {
+                result.Add(current);
+                current = new FocusBlock(ev.TsStart, ev.TsEnd, ExtractProjectLabel(ev));
+            }
+        }
+
+        if (current is not null)
+            result.Add(current);
+
+        return result;
+    }
+
+    private static void TagEventsWithFocusBlocks(
+        List<NormalizedEvent> events,
+        IReadOnlyList<FocusBlock> blocks,
+        TimeSpan includeBuffer)
+    {
+        if (blocks.Count == 0)
+            return;
+
+        foreach (var block in blocks)
+        {
+            var blockStart = block.Start - includeBuffer;
+            var blockEnd = block.End + includeBuffer;
+
+            foreach (var ev in events)
+            {
+                if (ev.ProjectTag is not null)
+                    continue;
+
+                if (ev.TsEnd <= blockStart || ev.TsStart >= blockEnd)
+                    continue;
+
+                ev.AssignProject(block.Label);
+            }
+        }
+    }
+
+    private static string ExtractProjectLabel(NormalizedEvent ev)
+    {
+        if (!string.IsNullOrWhiteSpace(ev.Title))
+        {
+            var segments = ev.Title.Split('-', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+            foreach (var segment in segments.Reverse())
+            {
+                if (segment.Contains("visual studio", StringComparison.OrdinalIgnoreCase)
+                    || segment.Contains("visual studio code", StringComparison.OrdinalIgnoreCase)
+                    || segment.Equals(ev.App, StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                if (segment.Length <= 2)
+                    continue;
+
+                return segment;
+            }
+
+            return segments.FirstOrDefault() ?? ev.Title;
+        }
+
+        return ev.App ?? "Coding";
+    }
+
+    private sealed class FocusBlock
+    {
+        private const string DefaultLabel = "Coding";
+
+        public FocusBlock(DateTimeOffset start, DateTimeOffset end, string label)
+        {
+            Start = start;
+            End = end;
+            Label = string.IsNullOrWhiteSpace(label) ? DefaultLabel : label;
+        }
+
+        public DateTimeOffset Start { get; private set; }
+        public DateTimeOffset End { get; private set; }
+        public string Label { get; private set; }
+        public TimeSpan Duration => End - Start;
+
+        public void Extend(DateTimeOffset candidateEnd)
+        {
+            if (candidateEnd > End)
+                End = candidateEnd;
+        }
+
+        public void TryUpdateLabel(string? candidate)
+        {
+            if (string.IsNullOrWhiteSpace(candidate))
+                return;
+
+            if (Label == DefaultLabel)
+                Label = candidate;
+        }
     }
 }

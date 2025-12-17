@@ -152,3 +152,4 @@ D:\gitProjects\WorkDailyReport\tests\WorkDailyReport.Tests\obj\Debug\net7.0\refi
 D:\gitProjects\WorkDailyReport\tests\WorkDailyReport.Tests\obj\Debug\net7.0\WorkDailyReport.Tests.pdb
 D:\gitProjects\WorkDailyReport\tests\WorkDailyReport.Tests\obj\Debug\net7.0\WorkDailyReport.Tests.genruntimeconfig.cache
 D:\gitProjects\WorkDailyReport\tests\WorkDailyReport.Tests\obj\Debug\net7.0\ref\WorkDailyReport.Tests.dll
+D:\gitProjects\WorkDailyReport\tests\WorkDailyReport.Tests\bin\Debug\net7.0\TestData\outlook-test.ics

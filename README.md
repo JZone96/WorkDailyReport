@@ -51,13 +51,13 @@ Lo scopo è produrre un **report quotidiano** (in formato Markdown/CSV) che docu
   - Git commit del giorno
     - [x] Localizzare repo `.git` (pruning o `git rev-parse`)
     - [c] Estrarre commit (`git log` o `LibGit2Sharp`)
-    - [ ] Associare commit a blocchi coding (±15m)
+    - [c] Associare commit a blocchi coding (±15m)
   - WakaTime
-  - Calendario
+  - [c] Calendario
   - Jira/Asana/Trello
 
 ### C. Normalizzazione & Pulizia
-- [ ] Schema uniforme (`ts_start`, `ts_end`, `duration`, `app`, `title`, `url`)
+- [c] Schema uniforme (`ts_start`, `ts_end`, `duration`, `app`, `title`, `url`)
 - [ ] Regole:
   - Orario lavoro + pausa esclusa
   - Scartare eventi < soglia (es. 10s)

@@ -7,6 +7,7 @@ using WorkDailyReport.ActivityWatch;
 using WorkDailyReport.Config;
 using WorkDailyReport.ETL;
 using WorkDailyReport.utils;
+using WorkDailyReport.Calendar;
 
 var builder = Host.CreateApplicationBuilder(args);
 // carica config da ./config/appsettings.json (+ opzionale env)
@@ -41,6 +42,7 @@ builder.Services.AddHttpClient<IActivityWatchClient, ActivityWatchClient>((sp, h
 // servizi app
 builder.Services.AddSingleton<IGitRepoLocator, GitRepoLocator>();
 builder.Services.AddSingleton<IGitCommitSource, GitCommitSource>();
+builder.Services.AddSingleton<ICalendarEventSource, OutlookCalendarSource>();
 builder.Services.AddSingleton<DailyRunner>();
 
 await builder.Build()

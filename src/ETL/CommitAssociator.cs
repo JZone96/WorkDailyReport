@@ -10,7 +10,7 @@ public static class CommitAssociator
         if (commits.Count == 0 || editorEvents.Count == 0)
             return commits.Select(c => new CommitAssociation(c, null)).ToList();
 
-        var orderedEditors = editorEvents.OrderBy(e => e.Start).ToList();
+        var orderedEditors = editorEvents.OrderBy(e => e.TsStart).ToList();
         var associations = new List<CommitAssociation>(commits.Count);
         var window = TimeSpan.FromMinutes(windowMinutes <= 0 ? 15 : windowMinutes);
 
@@ -22,9 +22,9 @@ public static class CommitAssociator
             NormalizedEvent? best = null;
             foreach (var editor in orderedEditors)
             {
-                if (editor.End < windowStart)
+                if (editor.TsEnd < windowStart)
                     continue;
-                if (editor.Start > windowEnd)
+                if (editor.TsStart > windowEnd)
                     break;
 
                 if (!editor.IsCoding)

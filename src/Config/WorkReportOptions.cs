@@ -15,6 +15,7 @@ public sealed class WorkReportOptions
     public DatabaseOptions Database { get; set; } = new();
     public ReposOptions Repos { get; set; } = new();
     public SummaryOptions Summary { get; set; } = new();
+    public CalendarOptions Calendar { get; set; } = new();
     public ReportWindowOptions? ReportWindow { get; set; }
 }
 
@@ -136,4 +137,16 @@ public sealed class SummaryOptions
     public string LLMProvider { get; set; } = "openai";
     public string Model { get; set; } = "gpt-4o-mini";
     public string ApiKey { get; set; } = "";
+}
+
+public sealed class CalendarOptions
+{
+    public OutlookCalendarOptions Outlook { get; set; } = new();
+}
+
+public sealed class OutlookCalendarOptions
+{
+    public bool Enabled { get; set; }
+    public string IcsFile { get; set; } = "";
+    public string? TimeZone { get; set; }
 }
