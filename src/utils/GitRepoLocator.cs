@@ -12,6 +12,9 @@ public sealed class GitRepoLocator : IGitRepoLocator
     public async Task<IReadOnlyList<string>> FindAsync(string root, CancellationToken ct)
     {
         var bag = new ConcurrentBag<string>();
+        if (Directory.Exists(Path.Combine(root, ".git")))
+            bag.Add(root);
+
         var level1 = Directory.EnumerateDirectories(root, "*", SearchOption.TopDirectoryOnly);
 
         await Parallel.ForEachAsync(level1, ct, async (dir, token) =>

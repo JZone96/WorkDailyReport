@@ -1,12 +1,12 @@
 # 📘 WorkReport
 
 ## 🎯 Obiettivo
-WorkReport è un tool **console in .NET 8** pensato per automatizzare la raccolta, l’analisi e il riassunto delle attività lavorative giornaliere.  
-Lo scopo è produrre un **report quotidiano** (in formato Markdown/CSV) che documenti in modo affidabile come sono state spese le ore lavorative, integrando:  
-- applicazioni e finestre usate  
-- siti web visitati  
-- tempi di inattività (AFK)  
-- commit effettuati nei repository Git locali  
+WorkReport è un tool **console in .NET 8** pensato per automatizzare la raccolta, l’analisi e il riassunto delle attività lavorative giornaliere.
+Lo scopo è produrre un **report quotidiano** (in formato Markdown/CSV) che documenti in modo affidabile come sono state spese le ore lavorative, integrando:
+- applicazioni e finestre usate
+- siti web visitati
+- tempi di inattività (AFK)
+- commit effettuati nei repository Git locali
 
 ---
 
@@ -27,12 +27,12 @@ Lo scopo è produrre un **report quotidiano** (in formato Markdown/CSV) che docu
 
 ## 🏗 Architettura
 
-1. **Configurazione** – `appsettings.json` con orari, filtri, mapping, privacy  
-2. **Raccolta dati** – ActivityWatch API (`window`, `web`, `afk`)  
-3. **ETL** – normalizzazione, filtri, merge eventi, commit Git  
-4. **Persistenza** – SQLite/DuckDB (`events_raw`, `events_clean`, `daily_rollup`)  
-5. **Report** – generazione Markdown/CSV  
-6. **Notifiche** – invio via Email/Slack/Notion  
+1. **Configurazione** – `appsettings.json` con orari, filtri, mapping, privacy
+2. **Raccolta dati** – ActivityWatch API (`window`, `web`, `afk`)
+3. **ETL** – normalizzazione, filtri, merge eventi, commit Git
+4. **Persistenza** – SQLite/DuckDB (`events_raw`, `events_clean`, `daily_rollup`)
+5. **Report** – generazione Markdown/CSV
+6. **Notifiche** – invio via Email/Slack/Notion
 
 ---
 
@@ -50,7 +50,7 @@ Lo scopo è produrre un **report quotidiano** (in formato Markdown/CSV) che docu
 - [ ] Integrare fonti opzionali:
   - Git commit del giorno
     - [x] Localizzare repo `.git` (pruning o `git rev-parse`)
-    - [ ] Estrarre commit (`git log` o `LibGit2Sharp`)
+    - [c] Estrarre commit (`git log` o `LibGit2Sharp`)
     - [ ] Associare commit a blocchi coding (±15m)
   - WakaTime
   - Calendario

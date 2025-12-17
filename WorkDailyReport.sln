@@ -4,6 +4,8 @@ VisualStudioVersion = 17.5.2.0
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WorkDailyReport", "WorkDailyReport.csproj", "{D633E161-0A63-1B9E-C9B6-954544122A61}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WorkDailyReport.Tests", "tests\\WorkDailyReport.Tests\\WorkDailyReport.Tests.csproj", "{C648CCFD-BB02-4638-80EF-E5C541F0DEE4}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -14,6 +16,10 @@ Global
 		{D633E161-0A63-1B9E-C9B6-954544122A61}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{D633E161-0A63-1B9E-C9B6-954544122A61}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{D633E161-0A63-1B9E-C9B6-954544122A61}.Release|Any CPU.Build.0 = Release|Any CPU
+		{C648CCFD-BB02-4638-80EF-E5C541F0DEE4}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{C648CCFD-BB02-4638-80EF-E5C541F0DEE4}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{C648CCFD-BB02-4638-80EF-E5C541F0DEE4}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{C648CCFD-BB02-4638-80EF-E5C541F0DEE4}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

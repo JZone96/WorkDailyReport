@@ -40,6 +40,7 @@ builder.Services.AddHttpClient<IActivityWatchClient, ActivityWatchClient>((sp, h
 
 // servizi app
 builder.Services.AddSingleton<IGitRepoLocator, GitRepoLocator>();
+builder.Services.AddSingleton<IGitCommitSource, GitCommitSource>();
 builder.Services.AddSingleton<DailyRunner>();
 
 await builder.Build()
