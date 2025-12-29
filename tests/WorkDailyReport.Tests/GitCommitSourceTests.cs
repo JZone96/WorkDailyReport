@@ -15,8 +15,8 @@ public class GitCommitSourceTests
         var logger = NullLogger<GitCommitSource>.Instance;
         var source = new GitCommitSource(locator, logger);
 
-        var start = DateTime.Today.AddYears(-10);
-        var end = DateTime.Today.AddDays(1);
+        var start = DateTimeOffset.Now.AddYears(-10);
+        var end = DateTimeOffset.Now;
         var commits = await source.GetCommitsAsync(repoRoot, start, end, CancellationToken.None);
 
         Assert.NotEmpty(commits);

@@ -1,14 +1,19 @@
 using System.Diagnostics;
+using System.Globalization;
 
 public static class GitHelper
 {
-    public static async Task<IReadOnlyList<GitCommit>> GetCommitsByDate(string repoPath, CancellationToken ct, DateTime start, DateTime end)
+    public static async Task<IReadOnlyList<GitCommit>> GetCommitsByDate(
+        string repoPath,
+        CancellationToken ct,
+        DateTimeOffset since,
+        DateTimeOffset until)
     {
-        var since = start.ToString("yyyy-MM-dd");
-        var until = end.ToString("yyyy-MM-dd");
+        var sinceArg = since.ToString("yyyy-MM-ddTHH:mm:sszzz", CultureInfo.InvariantCulture);
+        var untilArg = until.ToString("yyyy-MM-ddTHH:mm:sszzz", CultureInfo.InvariantCulture);
 
         var psi = new ProcessStartInfo("git",
-            $"log --since=\"{since}\" --until=\"{until}\" --pretty=format:\"%H|%an|%ad|%s\" --date=iso")
+            $"log --all --since=\"{sinceArg}\" --until=\"{untilArg}\" --pretty=format:\"%H|%an|%ad|%s\" --date=iso-strict")
         {
             WorkingDirectory = repoPath,
             RedirectStandardOutput = true,

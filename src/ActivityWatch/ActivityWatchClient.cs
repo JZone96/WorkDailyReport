@@ -55,4 +55,4 @@ public sealed class ActivityWatchClient : IActivityWatchClient
 
 public sealed record BucketDto(string Id, string Client);
 public sealed record EventDto(DateTimeOffset Timestamp, double? Duration, EventData Data);
-public sealed record EventData(string? App, string? Title, string? Url);
+public sealed record EventData(string? App, string? Title, string? Url, string? Status);

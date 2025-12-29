@@ -29,9 +29,10 @@ public sealed class DailyRunner
 
     public async Task RunAsync(CancellationToken ct)
     {
-        var (since, untilExclusive, gitStartDate, gitEndDateExclusive, startDateOnly, endDateOnly) =
+        var (since, untilExclusive, gitSince, gitUntil, startDateOnly, endDateOnly) =
             GetWindow(_opt.WorkHours, _opt.ReportWindow);
         var workIntervals = BuildWorkIntervals(_opt.WorkHours, startDateOnly, endDateOnly);
+        var dataTimeZone = TimeZoneInfo.FindSystemTimeZoneById(_opt.WorkHours.TimeZone);
 
         var buckets = await _aw.ListBucketsAsync(ct);
         if (buckets.Count == 0)
@@ -44,6 +45,7 @@ public sealed class DailyRunner
         var windowBucket = buckets.FirstOrDefault(b =>
             preferredWatchers.Any(w => b.Id.Contains(w, StringComparison.OrdinalIgnoreCase)))
             ?? buckets.FirstOrDefault(b => b.Id.Contains("aw-watcher-window", StringComparison.OrdinalIgnoreCase));
+        var afkBucket = buckets.FirstOrDefault(b => b.Id.Contains("aw-watcher-afk", StringComparison.OrdinalIgnoreCase));
 
         if (windowBucket is null)
         {
@@ -59,19 +61,39 @@ public sealed class DailyRunner
 
         var normalizedEvents = NormalizeWindowEvents(
             events,
-            _opt.Editors.RecognizedApps ?? new List<string>());
+            _opt.Editors.RecognizedApps ?? new List<string>(),
+            dataTimeZone);
 
         foreach (var ev in normalizedEvents.Take(10))
         {
+            var localStart = AdjustToTimeZone(ev.TsStart, dataTimeZone);
+            var localEnd = AdjustToTimeZone(ev.TsEnd, dataTimeZone);
             var codingTag = ev.IsCoding ? "[coding]" : string.Empty;
-            Console.WriteLine($"- {ev.TsStart:t}-{ev.TsEnd:t} {ev.App} {codingTag} | {ev.Title}");
+            Console.WriteLine($"- {localStart:t}-{localEnd:t} {ev.App} {codingTag} | {ev.Title}");
+        }
+
+        var normalizedAfkEvents = new List<NormalizedEvent>();
+        if (afkBucket is not null)
+        {
+            var afkRaw = await _aw.GetEventsAsync(afkBucket.Id, since, untilExclusive, ct);
+            normalizedAfkEvents = NormalizeAfkEvents(afkRaw, dataTimeZone);
+            normalizedAfkEvents = MergeAfkEvents(normalizedAfkEvents, _opt.Filters.MergeGapSeconds);
+            Console.WriteLine($"Eventi AFK: {normalizedAfkEvents.Count}");
+            foreach (var afk in normalizedAfkEvents.Take(5))
+            {
+                Console.WriteLine($"- AFK {afk.TsStart:t}-{afk.TsEnd:t} ({afk.Duration.TotalMinutes:F0} min)");
+            }
+        }
+        else
+        {
+            Console.WriteLine("⚠ Nessun bucket AFK trovato (nessuna separazione AFK).");
         }
 
         // Git: estrai commit dal root configurato e ordinali cronologicamente
         var commits = await _gitCommitSource.GetCommitsAsync(
             _opt.Paths.ReposRoot,
-            gitStartDate,
-            gitEndDateExclusive,
+            gitSince,
+            gitUntil,
             ct);
 
         Console.WriteLine($"Commit trovati: {commits.Count}");
@@ -79,15 +101,22 @@ public sealed class DailyRunner
         {
             Console.WriteLine($"Repo {group.Key} ({group.Count()} commit)");
             foreach (var commit in group)
-                Console.WriteLine($"  [{commit.Timestamp:t}] {commit.Author} {commit.Message} ({commit.Hash[..7]})");
+            {
+                var commitLocal = AdjustToTimeZone(commit.Timestamp, dataTimeZone);
+                Console.WriteLine($"  [{commitLocal:t}] {commit.Author} {commit.Message} ({commit.Hash[..7]})");
+            }
         }
 
         var calendarEvents = await _calendarSource.GetEventsAsync(since, untilExclusive, ct);
         Console.WriteLine($"Eventi calendario Outlook: {calendarEvents.Count}");
         foreach (var cal in calendarEvents.Take(10))
         {
-            Console.WriteLine($"- {cal.Start:yyyy-MM-dd HH:mm} → {cal.End:HH:mm} {cal.Title} @ {cal.Location}");
-            normalizedEvents.Add(new NormalizedEvent(
+            var calStartLocal = AdjustToTimeZone(cal.Start, dataTimeZone);
+            var calEndLocal = AdjustToTimeZone(cal.End, dataTimeZone);
+            Console.WriteLine($"- {calStartLocal:yyyy-MM-dd HH:mm} → {calEndLocal:HH:mm} {cal.Title} @ {cal.Location}");
+        }
+        var normalizedCalendarEvents = calendarEvents
+            .Select(cal => new NormalizedEvent(
                 cal.Start,
                 cal.End,
                 source: "Outlook",
@@ -95,8 +124,15 @@ public sealed class DailyRunner
                 app: "Outlook",
                 title: cal.Title,
                 url: cal.Location,
-                isCoding: false));
+                isCoding: false))
+            .ToList();
+        normalizedEvents.AddRange(normalizedCalendarEvents);
+
+        if (_opt.Filters.ExcludeAFK && normalizedAfkEvents.Count > 0)
+        {
+            normalizedEvents = RemoveAfkOverlap(normalizedEvents, normalizedAfkEvents);
         }
+        normalizedEvents.AddRange(normalizedAfkEvents);
 
         normalizedEvents = ClipEventsToWorkSchedule(normalizedEvents, workIntervals);
         normalizedEvents = FilterByDuration(normalizedEvents, _opt.Filters.MinDurationSeconds);
@@ -118,9 +154,11 @@ public sealed class DailyRunner
             foreach (var block in focusBlocks)
             {
                 var relatedCount = CountEventsForBlock(normalizedEvents, block, focusBuffer);
+                var blockStartLocal = AdjustToTimeZone(block.Start, dataTimeZone);
+                var blockEndLocal = AdjustToTimeZone(block.End, dataTimeZone);
 
                 Console.WriteLine(
-                    $"- {block.Start:HH:mm}-{block.End:HH:mm} {block.Label} ({block.Duration.TotalMinutes:F0} min, {relatedCount} eventi)");
+                    $"- {blockStartLocal:HH:mm}-{blockEndLocal:HH:mm} {block.Label} ({block.Duration.TotalMinutes:F0} min, {relatedCount} eventi)");
             }
 
             Console.WriteLine();
@@ -151,8 +189,11 @@ public sealed class DailyRunner
                     _ => $" (es. {sampleTitles[0]}, {sampleTitles[1]})"
                 };
 
+                var blockStartLocal = AdjustToTimeZone(block.Start, dataTimeZone);
+                var blockEndLocal = AdjustToTimeZone(block.End, dataTimeZone);
+
                 Console.WriteLine(
-                    $"  • {block.Label}: {block.Start:HH:mm}-{block.End:HH:mm} (~{block.Duration.TotalMinutes:F0}m) in {primaryApp}{titleText}{commitText}.");
+                    $"  • {block.Label}: {blockStartLocal:HH:mm}-{blockEndLocal:HH:mm} (~{block.Duration.TotalMinutes:F0}m) in {primaryApp}{titleText}{commitText}.");
             }
         }
 
@@ -161,8 +202,10 @@ public sealed class DailyRunner
         Console.WriteLine("Eventi normalizzati (schema ts_start/ts_end/duration/app/title/url):");
         foreach (var row in uniformRows.Take(10))
         {
+            var startLocal = AdjustToTimeZone(row.TsStart, dataTimeZone);
+            var endLocal = AdjustToTimeZone(row.TsEnd, dataTimeZone);
             Console.WriteLine(
-                $"- {row.TsStart:yyyy-MM-dd HH:mm} → {row.TsEnd:HH:mm} | {row.App} | {row.Title} | dur={row.DurationSeconds:F0}s | {row.Source}/{row.Kind}{FormatProjectTag(row.ProjectTag)}");
+                $"- {startLocal:yyyy-MM-dd HH:mm} → {endLocal:HH:mm} | {row.App} | {row.Title} | dur={row.DurationSeconds:F0}s | {row.Source}/{row.Kind}{FormatProjectTag(row.ProjectTag)}");
         }
 
         var associations = CommitAssociator.Associate(
@@ -174,18 +217,24 @@ public sealed class DailyRunner
         Console.WriteLine("Associazioni commit ↔ editor:");
         foreach (var assoc in associations)
         {
-            if (assoc.EditorEvent is null)
+            var commitLocal = AdjustToTimeZone(assoc.Commit.Timestamp, dataTimeZone);
+            if (assoc.EditorEvents.Count == 0)
             {
-                Console.WriteLine($"  {assoc.Commit.Timestamp:t} {assoc.Commit.RepoName} {assoc.Commit.Message} — nessun editor nel ±{_opt.Editors.CommitAssociationWindowMinutes}m");
+                Console.WriteLine($"  {commitLocal:t} {assoc.Commit.RepoName} {assoc.Commit.Message} — nessun editor rilevato nella giornata (fallback ±{_opt.Editors.CommitAssociationWindowMinutes}m)");
                 continue;
             }
 
-            Console.WriteLine($"  {assoc.Commit.Timestamp:t} {assoc.Commit.RepoName} {assoc.Commit.Message}");
-            Console.WriteLine($"      ↳ {assoc.EditorEvent.TsStart:t}-{assoc.EditorEvent.TsEnd:t} {assoc.EditorEvent.App} | {assoc.EditorEvent.Title}");
+            Console.WriteLine($"  {commitLocal:t} {assoc.Commit.RepoName} {assoc.Commit.Message}");
+            foreach (var editor in assoc.EditorEvents)
+            {
+                var editorStart = AdjustToTimeZone(editor.TsStart, dataTimeZone);
+                var editorEnd = AdjustToTimeZone(editor.TsEnd, dataTimeZone);
+                Console.WriteLine($"      ↳ {editorStart:t}-{editorEnd:t} {editor.App} | {editor.Title}");
+            }
         }
     }
 
-    private static (DateTimeOffset since, DateTimeOffset untilExclusive, DateTime gitStartDate, DateTime gitEndDateExclusive, DateOnly startDate, DateOnly endDate)
+    private static (DateTimeOffset since, DateTimeOffset untilExclusive, DateTimeOffset gitSince, DateTimeOffset gitUntil, DateOnly startDate, DateOnly endDate)
     GetWindow(WorkHoursOptions wh, ReportWindowOptions? rw)
     {
         var tz = TimeZoneInfo.FindSystemTimeZoneById(wh.TimeZone);
@@ -219,15 +268,19 @@ public sealed class DailyRunner
         var since = new DateTimeOffset(startLocal, tz.GetUtcOffset(startLocal));
         var untilExclusive = new DateTimeOffset(endLocalExclusive, tz.GetUtcOffset(endLocalExclusive));
 
-        // Bound per Git helper (solo data; end esclusivo)
-        var gitStartDate = startLocal.Date;
-        var gitEndDateExclusive = endLocalExclusive.Date;
+        // Bound Git: copri sempre l'intera giornata (00:00 → 23:59:59) nel fuso specificato
+        var gitSinceLocal = startDo.ToDateTime(TimeOnly.MinValue);
+        var gitSince = new DateTimeOffset(gitSinceLocal, tz.GetUtcOffset(gitSinceLocal));
 
-        return (since, untilExclusive, gitStartDate, gitEndDateExclusive, startDo, endDo);
+        var gitUntilLocal = endDo.ToDateTime(new TimeOnly(23, 59, 59));
+        var gitUntil = new DateTimeOffset(gitUntilLocal, tz.GetUtcOffset(gitUntilLocal));
+
+        return (since, untilExclusive, gitSince, gitUntil, startDo, endDo);
     }
     private static List<NormalizedEvent> NormalizeWindowEvents(
         IReadOnlyList<EventDto> awEvents,
-        IReadOnlyList<string> recognizedApps)
+        IReadOnlyList<string> recognizedApps,
+        TimeZoneInfo tz)
     {
         if (awEvents.Count == 0)
             return new List<NormalizedEvent>();
@@ -235,12 +288,14 @@ public sealed class DailyRunner
         var list = new List<NormalizedEvent>(awEvents.Count);
         foreach (var ev in awEvents)
         {
+            var start = AdjustToTimeZone(ev.Timestamp, tz);
             var duration = ev.Duration.HasValue
                 ? TimeSpan.FromSeconds(ev.Duration.Value)
                 : TimeSpan.Zero;
-            var end = duration > TimeSpan.Zero
+            var endInstant = duration > TimeSpan.Zero
                 ? ev.Timestamp + duration
                 : ev.Timestamp;
+            var end = AdjustToTimeZone(endInstant, tz);
 
             var app = ev.Data.App ?? string.Empty;
             var isCoding = recognizedApps.Any(rec =>
@@ -248,7 +303,7 @@ public sealed class DailyRunner
                 app.Contains(rec, StringComparison.OrdinalIgnoreCase));
 
             list.Add(new NormalizedEvent(
-                ev.Timestamp,
+                start,
                 end,
                 source: "ActivityWatch",
                 kind: "Window",
@@ -259,6 +314,106 @@ public sealed class DailyRunner
         }
 
         return list;
+    }
+
+    private static List<NormalizedEvent> NormalizeAfkEvents(
+        IReadOnlyList<EventDto> afkEvents,
+        TimeZoneInfo tz)
+    {
+        if (afkEvents.Count == 0)
+            return new List<NormalizedEvent>();
+
+        var list = new List<NormalizedEvent>();
+        foreach (var ev in afkEvents)
+        {
+            var status = ev.Data.Status;
+            if (!string.Equals(status, "afk", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            var start = AdjustToTimeZone(ev.Timestamp, tz);
+            var duration = ev.Duration.HasValue
+                ? TimeSpan.FromSeconds(ev.Duration.Value)
+                : TimeSpan.Zero;
+            var endInstant = duration > TimeSpan.Zero
+                ? ev.Timestamp + duration
+                : ev.Timestamp;
+            var end = AdjustToTimeZone(endInstant, tz);
+
+            list.Add(new NormalizedEvent(
+                start,
+                end,
+                source: "ActivityWatch",
+                kind: "AFK",
+                app: "AFK",
+                title: "Assente",
+                url: null,
+                isCoding: false));
+        }
+
+        return list;
+    }
+
+    private static List<NormalizedEvent> MergeAfkEvents(
+        List<NormalizedEvent> afkEvents,
+        int mergeGapSeconds)
+    {
+        if (afkEvents.Count <= 1)
+            return afkEvents
+                .OrderBy(e => e.TsStart)
+                .ToList();
+
+        var ordered = afkEvents
+            .OrderBy(e => e.TsStart)
+            .ToList();
+
+        var merged = new List<NormalizedEvent>(ordered.Count);
+        var maxGap = TimeSpan.FromSeconds(Math.Max(0, mergeGapSeconds));
+
+        var currentStart = ordered[0].TsStart;
+        var currentEnd = ordered[0].TsEnd;
+        var template = ordered[0];
+
+        for (var i = 1; i < ordered.Count; i++)
+        {
+            var candidate = ordered[i];
+            var gap = candidate.TsStart - currentEnd;
+            if (gap < TimeSpan.Zero)
+                gap = TimeSpan.Zero;
+
+            if (gap <= maxGap)
+            {
+                if (candidate.TsEnd > currentEnd)
+                    currentEnd = candidate.TsEnd;
+            }
+            else
+            {
+                merged.Add(new NormalizedEvent(
+                    currentStart,
+                    currentEnd,
+                    template.Source,
+                    template.Kind,
+                    template.App,
+                    template.Title,
+                    template.Url,
+                    template.IsCoding));
+
+                template = candidate;
+                currentStart = candidate.TsStart;
+                currentEnd = candidate.TsEnd;
+            }
+        }
+
+        merged.Add(new NormalizedEvent(
+            currentStart,
+            currentEnd,
+            template.Source,
+            template.Kind,
+            template.App,
+            template.Title,
+            template.Url,
+            template.IsCoding));
+
+        return merged;
     }
 
     private static string FormatProjectTag(string tag) =>
@@ -444,6 +599,7 @@ public sealed class DailyRunner
         return events
             .Where(ev =>
                 ev.Kind.Equals("Calendar", StringComparison.OrdinalIgnoreCase) ||
+                ev.Kind.Equals("AFK", StringComparison.OrdinalIgnoreCase) ||
                 ev.Duration >= cutoff)
             .ToList();
     }
@@ -478,6 +634,79 @@ public sealed class DailyRunner
         }
 
         return reminders;
+    }
+
+    private static List<NormalizedEvent> RemoveAfkOverlap(
+        List<NormalizedEvent> events,
+        IReadOnlyList<NormalizedEvent> afkEvents)
+    {
+        var afkIntervals = afkEvents
+            .Where(afk => afk.Duration > TimeSpan.Zero)
+            .Select(afk => (Start: afk.TsStart, End: afk.TsEnd))
+            .OrderBy(interval => interval.Start)
+            .ToList();
+
+        if (afkIntervals.Count == 0)
+            return events;
+
+        var cleaned = new List<NormalizedEvent>();
+
+        foreach (var ev in events)
+        {
+            var segments = new List<(DateTimeOffset Start, DateTimeOffset End)>
+            {
+                (ev.TsStart, ev.TsEnd)
+            };
+
+            foreach (var afk in afkIntervals)
+            {
+                if (segments.Count == 0)
+                    break;
+
+                var splitted = new List<(DateTimeOffset Start, DateTimeOffset End)>();
+                foreach (var seg in segments)
+                {
+                    splitted.AddRange(SubtractInterval(seg, afk));
+                }
+
+                segments = splitted;
+            }
+
+            foreach (var seg in segments)
+            {
+                if (seg.End <= seg.Start)
+                    continue;
+
+                cleaned.Add(new NormalizedEvent(
+                    seg.Start,
+                    seg.End,
+                    ev.Source,
+                    ev.Kind,
+                    ev.App,
+                    ev.Title,
+                    ev.Url,
+                    ev.IsCoding));
+            }
+        }
+
+        return cleaned;
+    }
+
+    private static IEnumerable<(DateTimeOffset Start, DateTimeOffset End)> SubtractInterval(
+        (DateTimeOffset Start, DateTimeOffset End) segment,
+        (DateTimeOffset Start, DateTimeOffset End) block)
+    {
+        if (block.End <= segment.Start || block.Start >= segment.End)
+        {
+            yield return segment;
+            yield break;
+        }
+
+        if (block.Start > segment.Start)
+            yield return (segment.Start, block.Start);
+
+        if (block.End < segment.End)
+            yield return (block.End, segment.End);
     }
 
     private static List<NormalizedEvent> MergeEvents(
@@ -570,6 +799,19 @@ public sealed class DailyRunner
             title: title,
             url: null,
             isCoding: false));
+    }
+
+    private static DateTimeOffset AdjustToTimeZone(DateTimeOffset timestamp, TimeZoneInfo tz)
+    {
+        var converted = TimeZoneInfo.ConvertTime(timestamp, tz);
+        var targetOffset = tz.GetUtcOffset(converted.DateTime);
+        if ((converted.Offset - targetOffset).Duration() > TimeSpan.FromSeconds(1))
+        {
+            var localClock = DateTime.SpecifyKind(converted.DateTime, DateTimeKind.Unspecified);
+            return new DateTimeOffset(localClock, targetOffset);
+        }
+
+        return converted;
     }
 
     private static List<FocusBlock> BuildFocusBlocks(List<NormalizedEvent> events)

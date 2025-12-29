@@ -10,8 +10,8 @@ public interface IGitCommitSource
 {
     Task<IReadOnlyList<CommitEvent>> GetCommitsAsync(
         string reposRoot,
-        DateTime startDate,
-        DateTime endDateExclusive,
+        DateTimeOffset since,
+        DateTimeOffset until,
         CancellationToken ct);
 }
 
@@ -28,8 +28,8 @@ public sealed class GitCommitSource : IGitCommitSource
 
     public async Task<IReadOnlyList<CommitEvent>> GetCommitsAsync(
         string reposRoot,
-        DateTime startDate,
-        DateTime endDateExclusive,
+        DateTimeOffset since,
+        DateTimeOffset until,
         CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(reposRoot) || !Directory.Exists(reposRoot))
@@ -47,7 +47,7 @@ public sealed class GitCommitSource : IGitCommitSource
         {
             try
             {
-                var commits = await GitHelper.GetCommitsByDate(repo, token, startDate, endDateExclusive);
+                var commits = await GitHelper.GetCommitsByDate(repo, token, since, until);
                 var repoName = Path.GetFileName(repo.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
                 foreach (var commit in commits)
                 {
