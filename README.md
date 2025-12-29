@@ -23,6 +23,16 @@ Lo scopo è produrre un **report quotidiano** (in formato Markdown/CSV) che docu
 - **Serilog** (logging su file)
 - *(Opzionale)* Editor Visual Studio o VS Code (per riconoscimento sessioni coding)
 
+### Orari di lavoro configurabili
+Nel file `config/appsettings.json` la sezione `WorkReport:WorkHours` permette di dichiarare l'orario standard (`Start`/`End`) e la pausa pranzo. Con `DailyOverrides` puoi specificare eccezioni per singolo giorno (ad esempio pausa 13:30-14:30 lun/ven e 12:30-13:30 mar-gio). Il runner usa queste finestre per includere solo gli eventi all'interno dell'orario lavorativo.
+
+### Linee guida per la UI futura
+- Mostrare timeline giornaliera con focus block evidenziati e i promemoria (5 minuti prima di inizio/fine lavoro e pausa).
+- Evidenziare i reminder come notifiche (prossimo evento/pausa) agganciati al tempo reale.
+- Consentire i toggle per filtrare fonti (ActivityWatch, Git, Calendario, Scheduler).
+- Panoramica progetti (derivata dai blocchi IDE) con conteggio eventi e commit associati.
+- Sezioni dedicate ad AFK/meeting per spiegare i buchi temporali.
+
 ---
 
 ## 🏗 Architettura
@@ -59,7 +69,8 @@ Lo scopo è produrre un **report quotidiano** (in formato Markdown/CSV) che docu
 ### C. Normalizzazione & Pulizia
 - [c] Schema uniforme (`ts_start`, `ts_end`, `duration`, `app`, `title`, `url`)
 - [ ] Regole:
-  - Orario lavoro + pausa esclusa
+  - Orario lavoro + pausa esclusa 
+  - Gestione notifica eventi: Pausa tra 5 minuti, inizio e fine
   - Scartare eventi < soglia (es. 10s)
   - Merge contigui (gap ≤ 60s)
   - Separare AFK

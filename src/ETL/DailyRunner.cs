@@ -29,8 +29,9 @@ public sealed class DailyRunner
 
     public async Task RunAsync(CancellationToken ct)
     {
-        var (since, untilExclusive, gitStartDate, gitEndDateExclusive) =
+        var (since, untilExclusive, gitStartDate, gitEndDateExclusive, startDateOnly, endDateOnly) =
             GetWindow(_opt.WorkHours, _opt.ReportWindow);
+        var workIntervals = BuildWorkIntervals(_opt.WorkHours, startDateOnly, endDateOnly);
 
         var buckets = await _aw.ListBucketsAsync(ct);
         if (buckets.Count == 0)
@@ -96,6 +97,11 @@ public sealed class DailyRunner
                 url: cal.Location,
                 isCoding: false));
         }
+
+        normalizedEvents = ClipEventsToWorkSchedule(normalizedEvents, workIntervals);
+        normalizedEvents = FilterByDuration(normalizedEvents, _opt.Filters.MinDurationSeconds);
+        normalizedEvents = MergeEvents(normalizedEvents, _opt.Filters.MergeGapSeconds);
+        normalizedEvents.AddRange(BuildScheduleReminders(_opt.WorkHours, startDateOnly, endDateOnly));
 
         var focusBlocks = BuildFocusBlocks(normalizedEvents);
         var focusBuffer = TimeSpan.FromMinutes(2);
@@ -179,7 +185,7 @@ public sealed class DailyRunner
         }
     }
 
-    private static (DateTimeOffset since, DateTimeOffset untilExclusive, DateTime gitStartDate, DateTime gitEndDateExclusive)
+    private static (DateTimeOffset since, DateTimeOffset untilExclusive, DateTime gitStartDate, DateTime gitEndDateExclusive, DateOnly startDate, DateOnly endDate)
     GetWindow(WorkHoursOptions wh, ReportWindowOptions? rw)
     {
         var tz = TimeZoneInfo.FindSystemTimeZoneById(wh.TimeZone);
@@ -210,14 +216,14 @@ public sealed class DailyRunner
         // Fine esclusiva: aggiungo 1 minuto così "23:59" include tutto il minuto
         var endLocalExclusive = endLocal.AddMinutes(1);
 
-        var since = new DateTimeOffset(startLocal, TimeZoneInfo.Local.GetUtcOffset(startLocal));
-        var untilExclusive = new DateTimeOffset(endLocalExclusive, TimeZoneInfo.Local.GetUtcOffset(endLocalExclusive));
+        var since = new DateTimeOffset(startLocal, tz.GetUtcOffset(startLocal));
+        var untilExclusive = new DateTimeOffset(endLocalExclusive, tz.GetUtcOffset(endLocalExclusive));
 
         // Bound per Git helper (solo data; end esclusivo)
         var gitStartDate = startLocal.Date;
         var gitEndDateExclusive = endLocalExclusive.Date;
 
-        return (since, untilExclusive, gitStartDate, gitEndDateExclusive);
+        return (since, untilExclusive, gitStartDate, gitEndDateExclusive, startDo, endDo);
     }
     private static List<NormalizedEvent> NormalizeWindowEvents(
         IReadOnlyList<EventDto> awEvents,
@@ -303,6 +309,267 @@ public sealed class DailyRunner
                         e.TsEnd > blockStart &&
                         e.TsStart < blockEnd)
             .ToList();
+    }
+
+    private static List<WorkInterval> BuildWorkIntervals(
+        WorkHoursOptions options,
+        DateOnly startDate,
+        DateOnly endDate)
+    {
+        var intervals = new List<WorkInterval>();
+        if (startDate > endDate)
+            return intervals;
+
+        var tz = TimeZoneInfo.FindSystemTimeZoneById(options.TimeZone);
+        var workDays = new HashSet<DayOfWeek>(options.WorkDays ?? new List<DayOfWeek>());
+
+        for (var current = startDate; current <= endDate; current = current.AddDays(1))
+        {
+            if (!workDays.Contains(current.DayOfWeek))
+                continue;
+
+            var schedule = ResolveScheduleForDay(options, current.DayOfWeek);
+            if (schedule is null)
+                continue;
+
+            AddIntervals(intervals, current, schedule, tz);
+        }
+
+        return intervals;
+    }
+
+    private static ResolvedWorkSchedule? ResolveScheduleForDay(WorkHoursOptions options, DayOfWeek day)
+    {
+        options.DailyOverrides ??= new Dictionary<string, DailyWorkHoursOverride>();
+        options.DailyOverrides.TryGetValue(day.ToString(), out var daily);
+
+        var start = ParseTimeOnly(daily?.Start ?? options.Start);
+        var end = ParseTimeOnly(daily?.End ?? options.End);
+        if (start >= end)
+            return null;
+
+        var lunch = daily?.LunchBreak ?? options.LunchBreak;
+        TimeOnly? lunchStart = null;
+        TimeOnly? lunchEnd = null;
+        if (lunch is not null)
+        {
+            lunchStart = ParseTimeOnly(lunch.Start);
+            lunchEnd = ParseTimeOnly(lunch.End);
+            if (lunchStart >= lunchEnd)
+            {
+                lunchStart = null;
+                lunchEnd = null;
+            }
+        }
+
+        return new ResolvedWorkSchedule(start, end, lunchStart, lunchEnd);
+    }
+
+    private static TimeOnly ParseTimeOnly(string value) =>
+        TimeOnly.TryParse(value, out var parsed) ? parsed : TimeOnly.MinValue;
+
+    private static void AddIntervals(
+        List<WorkInterval> intervals,
+        DateOnly day,
+        ResolvedWorkSchedule schedule,
+        TimeZoneInfo tz)
+    {
+        var dayStart = day.ToDateTime(schedule.WorkStart);
+        var dayEnd = day.ToDateTime(schedule.WorkEnd);
+
+        if (schedule.LunchStart is TimeOnly lunchStart && schedule.LunchEnd is TimeOnly lunchEnd)
+        {
+            var lunchStartDt = day.ToDateTime(lunchStart);
+            var lunchEndDt = day.ToDateTime(lunchEnd);
+
+            if (lunchStartDt > dayStart)
+                intervals.Add(new WorkInterval(ToOffset(dayStart, tz), ToOffset(lunchStartDt, tz)));
+
+            if (dayEnd > lunchEndDt)
+                intervals.Add(new WorkInterval(ToOffset(lunchEndDt, tz), ToOffset(dayEnd, tz)));
+        }
+        else
+        {
+            intervals.Add(new WorkInterval(ToOffset(dayStart, tz), ToOffset(dayEnd, tz)));
+        }
+    }
+
+    private static DateTimeOffset ToOffset(DateTime local, TimeZoneInfo tz)
+    {
+        var unspecified = DateTime.SpecifyKind(local, DateTimeKind.Unspecified);
+        return new DateTimeOffset(unspecified, tz.GetUtcOffset(unspecified));
+    }
+
+    private static List<NormalizedEvent> ClipEventsToWorkSchedule(
+        List<NormalizedEvent> events,
+        IReadOnlyList<WorkInterval> intervals)
+    {
+        if (intervals.Count == 0)
+            return events;
+
+        var clipped = new List<NormalizedEvent>();
+        foreach (var ev in events)
+        {
+            foreach (var interval in intervals)
+            {
+                var start = ev.TsStart > interval.Start ? ev.TsStart : interval.Start;
+                var end = ev.TsEnd < interval.End ? ev.TsEnd : interval.End;
+
+                if (end <= start)
+                    continue;
+
+                clipped.Add(new NormalizedEvent(
+                    start,
+                    end,
+                    ev.Source,
+                    ev.Kind,
+                    ev.App,
+                    ev.Title,
+                    ev.Url,
+                    ev.IsCoding));
+            }
+        }
+
+        return clipped;
+    }
+
+    private static List<NormalizedEvent> FilterByDuration(
+        List<NormalizedEvent> events,
+        int minDurationSeconds)
+    {
+        if (minDurationSeconds <= 0)
+            return events;
+
+        var cutoff = TimeSpan.FromSeconds(minDurationSeconds);
+        return events
+            .Where(ev =>
+                ev.Kind.Equals("Calendar", StringComparison.OrdinalIgnoreCase) ||
+                ev.Duration >= cutoff)
+            .ToList();
+    }
+
+    private static List<NormalizedEvent> BuildScheduleReminders(
+        WorkHoursOptions options,
+        DateOnly startDate,
+        DateOnly endDate)
+    {
+        var reminders = new List<NormalizedEvent>();
+        if (startDate > endDate)
+            return reminders;
+
+        var tz = TimeZoneInfo.FindSystemTimeZoneById(options.TimeZone);
+        var workDays = new HashSet<DayOfWeek>(options.WorkDays ?? new List<DayOfWeek>());
+
+        for (var current = startDate; current <= endDate; current = current.AddDays(1))
+        {
+            if (!workDays.Contains(current.DayOfWeek))
+                continue;
+
+            var schedule = ResolveScheduleForDay(options, current.DayOfWeek);
+            if (schedule is null)
+                continue;
+
+            AddReminder(reminders, current, schedule.WorkStart, tz, "Promemoria: tra 5 minuti inizia il lavoro");
+            if (schedule.LunchStart is not null)
+                AddReminder(reminders, current, schedule.LunchStart.Value, tz, "Promemoria: tra 5 minuti inizia la pausa pranzo");
+            if (schedule.LunchEnd is not null)
+                AddReminder(reminders, current, schedule.LunchEnd.Value, tz, "Promemoria: tra 5 minuti finisce la pausa pranzo");
+            AddReminder(reminders, current, schedule.WorkEnd, tz, "Promemoria: tra 5 minuti finisce il lavoro");
+        }
+
+        return reminders;
+    }
+
+    private static List<NormalizedEvent> MergeEvents(
+        List<NormalizedEvent> events,
+        int mergeGapSeconds)
+    {
+        if (events.Count <= 1 || mergeGapSeconds < 0)
+            return events
+                .OrderBy(e => e.TsStart)
+                .ToList();
+
+        var ordered = events
+            .OrderBy(e => e.TsStart)
+            .ToList();
+        var merged = new List<NormalizedEvent>(ordered.Count);
+        var maxGap = TimeSpan.FromSeconds(mergeGapSeconds);
+        var current = ordered[0];
+
+        for (var i = 1; i < ordered.Count; i++)
+        {
+            var candidate = ordered[i];
+            if (CanMerge(current, candidate, maxGap))
+            {
+                current = MergePair(current, candidate);
+            }
+            else
+            {
+                merged.Add(current);
+                current = candidate;
+            }
+        }
+
+        merged.Add(current);
+        return merged;
+    }
+
+    private static bool CanMerge(
+        NormalizedEvent first,
+        NormalizedEvent second,
+        TimeSpan maxGap)
+    {
+        if (!string.Equals(first.Source, second.Source, StringComparison.OrdinalIgnoreCase) ||
+            !string.Equals(first.Kind, second.Kind, StringComparison.OrdinalIgnoreCase) ||
+            !string.Equals(first.App, second.App, StringComparison.Ordinal) ||
+            !string.Equals(first.Title, second.Title, StringComparison.Ordinal) ||
+            !string.Equals(first.Url, second.Url, StringComparison.Ordinal) ||
+            first.IsCoding != second.IsCoding)
+        {
+            return false;
+        }
+
+        var gap = second.TsStart - first.TsEnd;
+        if (gap < TimeSpan.Zero)
+            gap = TimeSpan.Zero;
+
+        return gap <= maxGap;
+    }
+
+    private static NormalizedEvent MergePair(NormalizedEvent first, NormalizedEvent second)
+    {
+        var start = first.TsStart <= second.TsStart ? first.TsStart : second.TsStart;
+        var end = first.TsEnd >= second.TsEnd ? first.TsEnd : second.TsEnd;
+
+        return new NormalizedEvent(
+            start,
+            end,
+            first.Source,
+            first.Kind,
+            first.App,
+            first.Title,
+            first.Url,
+            first.IsCoding);
+    }
+
+    private static void AddReminder(
+        List<NormalizedEvent> reminders,
+        DateOnly day,
+        TimeOnly target,
+        TimeZoneInfo tz,
+        string title)
+    {
+        var reminderInstant = day.ToDateTime(target).AddMinutes(-5);
+        var reminderOffset = ToOffset(reminderInstant, tz);
+        reminders.Add(new NormalizedEvent(
+            reminderOffset,
+            reminderOffset,
+            source: "Scheduler",
+            kind: "Reminder",
+            app: "Scheduler",
+            title: title,
+            url: null,
+            isCoding: false));
     }
 
     private static List<FocusBlock> BuildFocusBlocks(List<NormalizedEvent> events)
@@ -394,6 +661,14 @@ public sealed class DailyRunner
 
         return ev.App ?? "Coding";
     }
+
+    private sealed record WorkInterval(DateTimeOffset Start, DateTimeOffset End);
+
+    private sealed record ResolvedWorkSchedule(
+        TimeOnly WorkStart,
+        TimeOnly WorkEnd,
+        TimeOnly? LunchStart,
+        TimeOnly? LunchEnd);
 
     private sealed class FocusBlock
     {

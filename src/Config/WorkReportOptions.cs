@@ -37,6 +37,7 @@ public sealed class WorkHoursOptions
     public string Start { get; set; } = "09:00";
     public string End { get; set; } = "18:00";
     public LunchBreakOptions LunchBreak { get; set; } = new();
+    public Dictionary<string, DailyWorkHoursOverride> DailyOverrides { get; set; } = new();
     public List<DayOfWeek> WorkDays { get; set; } =
         new() { DayOfWeek.Monday, DayOfWeek.Tuesday, DayOfWeek.Wednesday, DayOfWeek.Thursday, DayOfWeek.Friday };
     public string TimeZone { get; set; } = "Europe/Rome";
@@ -46,6 +47,13 @@ public sealed class LunchBreakOptions
 {
     public string Start { get; set; } = "13:30";
     public string End { get; set; } = "14:30";
+}
+
+public sealed class DailyWorkHoursOverride
+{
+    public string? Start { get; set; }
+    public string? End { get; set; }
+    public LunchBreakOptions? LunchBreak { get; set; }
 }
 
 public sealed class ActivityWatchOptions
