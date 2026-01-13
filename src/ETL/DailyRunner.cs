@@ -239,7 +239,11 @@ public sealed class DailyRunner
                 Console.WriteLine($"      ↳ {editorStart:t}-{editorEnd:t} {editor.App} | {editor.Title}");
             }
             var totalMinutes = assoc.EditorEvents.Sum(e => e.Duration.TotalMinutes);
+            var spanStart = assoc.EditorEvents.Min(e => e.TsStart);
+            var spanEnd = assoc.EditorEvents.Max(e => e.TsEnd);
+            var spanMinutes = (spanEnd - spanStart).TotalMinutes;
             Console.WriteLine($"      Totale: {totalMinutes:F0} min");
+            Console.WriteLine($"      Finestra: {spanMinutes:F0} min");
         }
 
     }
