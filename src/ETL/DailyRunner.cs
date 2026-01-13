@@ -242,8 +242,8 @@ public sealed class DailyRunner
             var spanStart = assoc.EditorEvents.Min(e => e.TsStart);
             var spanEnd = assoc.EditorEvents.Max(e => e.TsEnd);
             var spanMinutes = (spanEnd - spanStart).TotalMinutes;
-            Console.WriteLine($"      Totale: {totalMinutes:F0} min");
-            Console.WriteLine($"      Finestra: {spanMinutes:F0} min");
+            Console.WriteLine($"      Totale: {FormatMinutes(totalMinutes)}");
+            Console.WriteLine($"      Finestra: {FormatMinutes(spanMinutes)}");
         }
 
     }
@@ -290,6 +290,15 @@ public sealed class DailyRunner
         var gitUntil = new DateTimeOffset(gitUntilLocal, tz.GetUtcOffset(gitUntilLocal));
 
         return (since, untilExclusive, gitSince, gitUntil, startDo, endDo);
+    }
+
+    private static string FormatMinutes(double minutes)
+    {
+        var rounded = Math.Max(0, (int)Math.Round(minutes));
+        var ts = TimeSpan.FromMinutes(rounded);
+        if (ts.TotalHours >= 1)
+            return $"{(int)ts.TotalHours}h {ts.Minutes}m";
+        return $"{ts.Minutes}m";
     }
 
     private static BucketDto? FindBucketByPriority(
