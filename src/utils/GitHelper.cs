@@ -13,7 +13,7 @@ public static class GitHelper
         var untilArg = until.ToString("yyyy-MM-ddTHH:mm:sszzz", CultureInfo.InvariantCulture);
 
         var psi = new ProcessStartInfo("git",
-            $"log --all --since=\"{sinceArg}\" --until=\"{untilArg}\" --pretty=format:\"%H|%an|%ad|%s\" --date=iso-strict")
+            $"log --all --since=\"{sinceArg}\" --until=\"{untilArg}\" --pretty=format:\"%H|%an|%ae|%ad|%s\" --date=iso-strict")
         {
             WorkingDirectory = repoPath,
             RedirectStandardOutput = true,
@@ -29,14 +29,17 @@ public static class GitHelper
         var list = new List<GitCommit>();
         foreach (var line in output.Split('\n', StringSplitOptions.RemoveEmptyEntries))
         {
-            var parts = line.Split('|', 4);
-            if (parts.Length == 4)
+            var parts = line.Split('|', 5);
+            if (parts.Length == 5)
             {
+                var author = string.IsNullOrWhiteSpace(parts[2])
+                    ? parts[1]
+                    : $"{parts[1]} <{parts[2]}>";
                 list.Add(new GitCommit(
                     parts[0],
-                    parts[1],
-                    DateTimeOffset.Parse(parts[2]),
-                    parts[3]));
+                    author,
+                    DateTimeOffset.Parse(parts[3]),
+                    parts[4]));
             }
         }
         return list;

@@ -1,8 +1,10 @@
 using System.Collections.Concurrent;
 using System.IO;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using WorkDailyReport.utils;
 using System.Linq;
+using WorkDailyReport.Config;
 
 namespace WorkDailyReport.ETL;
 
@@ -19,11 +21,16 @@ public sealed class GitCommitSource : IGitCommitSource
 {
     private readonly IGitRepoLocator _repoLocator;
     private readonly ILogger<GitCommitSource> _logger;
+    private readonly WorkReportOptions _opt;
 
-    public GitCommitSource(IGitRepoLocator repoLocator, ILogger<GitCommitSource> logger)
+    public GitCommitSource(
+        IGitRepoLocator repoLocator,
+        ILogger<GitCommitSource> logger,
+        IOptions<WorkReportOptions> opt)
     {
         _repoLocator = repoLocator;
         _logger = logger;
+        _opt = opt.Value;
     }
 
     public async Task<IReadOnlyList<CommitEvent>> GetCommitsAsync(
@@ -66,8 +73,22 @@ public sealed class GitCommitSource : IGitCommitSource
             }
         });
 
-        return bag
+        var filtered = ApplyAuthorFilter(bag);
+        return filtered
             .OrderBy(c => c.Timestamp)
+            .ToList();
+    }
+
+    private IReadOnlyList<CommitEvent> ApplyAuthorFilter(IEnumerable<CommitEvent> commits)
+    {
+        var allowlist = _opt.Git.AuthorAllowlist ?? new List<string>();
+        if (allowlist.Count == 0)
+            return commits.ToList();
+
+        return commits
+            .Where(c => allowlist.Any(a =>
+                !string.IsNullOrWhiteSpace(a) &&
+                c.Author.Contains(a, StringComparison.OrdinalIgnoreCase)))
             .ToList();
     }
 }

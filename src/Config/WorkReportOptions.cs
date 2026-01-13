@@ -14,6 +14,7 @@ public sealed class WorkReportOptions
     public NotificationsOptions Notifications { get; set; } = new();
     public DatabaseOptions Database { get; set; } = new();
     public ReposOptions Repos { get; set; } = new();
+    public GitOptions Git { get; set; } = new();
     public SummaryOptions Summary { get; set; } = new();
     public CalendarOptions Calendar { get; set; } = new();
     public ReportWindowOptions? ReportWindow { get; set; }
@@ -137,6 +138,11 @@ public sealed class DatabaseOptions
 public sealed class ReposOptions
 {
     public string ReposRootFolder { get; set; } = "";
+}
+
+public sealed class GitOptions
+{
+    public List<string> AuthorAllowlist { get; set; } = new();
 }
 
 public sealed class SummaryOptions
