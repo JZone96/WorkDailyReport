@@ -9,6 +9,15 @@ using WorkDailyReport.ETL;
 using WorkDailyReport.utils;
 using WorkDailyReport.Calendar;
 
+var logFilePath = Path.Combine("logs", "dotnet-run.log");
+Directory.CreateDirectory(Path.GetDirectoryName(logFilePath)!);
+var logFileStream = new FileStream(logFilePath, FileMode.Append, FileAccess.Write, FileShare.Read);
+var logFileWriter = new StreamWriter(logFileStream) { AutoFlush = true };
+var consoleOut = Console.Out;
+var consoleError = Console.Error;
+Console.SetOut(new MultiplexTextWriter(consoleOut, logFileWriter));
+Console.SetError(new MultiplexTextWriter(consoleError, logFileWriter));
+
 var builder = Host.CreateApplicationBuilder(args);
 // carica config da ./config/appsettings.json (+ opzionale env)
 builder.Configuration.AddJsonFile(System.IO.Path.Combine("config", "appsettings.json"), optional: false, reloadOnChange: true)
@@ -48,3 +57,35 @@ builder.Services.AddSingleton<DailyRunner>();
 await builder.Build()
     .Services.GetRequiredService<DailyRunner>()
     .RunAsync(CancellationToken.None);
+
+sealed class MultiplexTextWriter : TextWriter
+{
+    private readonly TextWriter _first;
+    private readonly TextWriter _second;
+
+    public MultiplexTextWriter(TextWriter first, TextWriter second)
+    {
+        _first = first;
+        _second = second;
+    }
+
+    public override Encoding Encoding => _first.Encoding;
+
+    public override void Write(char value)
+    {
+        _first.Write(value);
+        _second.Write(value);
+    }
+
+    public override void Write(string? value)
+    {
+        _first.Write(value);
+        _second.Write(value);
+    }
+
+    public override void WriteLine(string? value)
+    {
+        _first.WriteLine(value);
+        _second.WriteLine(value);
+    }
+}
