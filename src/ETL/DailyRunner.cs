@@ -239,6 +239,34 @@ public sealed class DailyRunner
                 Console.WriteLine($"      ↳ {editorStart:t}-{editorEnd:t} {editor.App} | {editor.Title}");
             }
         }
+
+        var unlinked = normalizedEvents
+            .Where(e => e.LinkedCommits.Count == 0)
+            .ToList();
+
+        Console.WriteLine();
+        Console.WriteLine("Eventi senza commit (raggruppati per progetto):");
+        if (unlinked.Count == 0)
+        {
+            Console.WriteLine("  (nessuno)");
+        }
+        else
+        {
+            var grouped = unlinked
+                .GroupBy(GetProjectLabelForEvent)
+                .OrderBy(g => g.Key, StringComparer.OrdinalIgnoreCase);
+
+            foreach (var group in grouped)
+            {
+                Console.WriteLine($"- {group.Key} ({group.Count()} eventi)");
+                foreach (var ev in group.OrderBy(e => e.TsStart))
+                {
+                    var localStart = AdjustToTimeZone(ev.TsStart, dataTimeZone);
+                    var localEnd = AdjustToTimeZone(ev.TsEnd, dataTimeZone);
+                    Console.WriteLine($"  {localStart:HH:mm}-{localEnd:HH:mm} {ev.App} | {ev.Title}");
+                }
+            }
+        }
     }
 
     private static (DateTimeOffset since, DateTimeOffset untilExclusive, DateTimeOffset gitSince, DateTimeOffset gitUntil, DateOnly startDate, DateOnly endDate)
@@ -927,6 +955,24 @@ public sealed class DailyRunner
         }
 
         return ev.App ?? "Coding";
+    }
+
+    private static string GetProjectLabelForEvent(NormalizedEvent ev)
+    {
+        if (!string.IsNullOrWhiteSpace(ev.ProjectTag))
+            return ev.ProjectTag!;
+
+        if (!string.IsNullOrWhiteSpace(ev.Title))
+        {
+            var segments = ev.Title.Split('-', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+            var candidate = segments.FirstOrDefault(s => s.Length > 2);
+            return candidate ?? ev.Title!;
+        }
+
+        if (!string.IsNullOrWhiteSpace(ev.App))
+            return ev.App!;
+
+        return "Senza progetto";
     }
 
     private sealed record WorkInterval(DateTimeOffset Start, DateTimeOffset End);
