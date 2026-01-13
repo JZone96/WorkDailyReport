@@ -25,27 +25,46 @@ public static class CommitAssociator
 
         var associations = new List<CommitAssociation>(commits.Count);
         var window = TimeSpan.FromMinutes(windowMinutes <= 0 ? 15 : windowMinutes);
+        var usedByRepo = new Dictionary<string, HashSet<NormalizedEvent>>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var commit in commits)
         {
             var dayStart = StartOfDay(commit.Timestamp);
+            var repoKey = commit.RepoName ?? string.Empty;
+            if (!usedByRepo.TryGetValue(repoKey, out var usedForRepo))
+            {
+                usedForRepo = new HashSet<NormalizedEvent>();
+                usedByRepo[repoKey] = usedForRepo;
+            }
+
             var matches = orderedEvents
                 .Where(ev =>
                     ev.TsStart >= dayStart &&
                     ev.TsStart <= commit.Timestamp &&
-                    MatchesRepo(ev, commit.RepoName))
+                    MatchesRepo(ev, commit.RepoName) &&
+                    !usedForRepo.Contains(ev))
                 .ToList();
 
             if (matches.Count == 0)
             {
-                var fallback = FindBestInWindow(commit, orderedCoding, window)
-                    ?? FindBestInWindow(commit, orderedEvents, window);
+                var codingAvailable = orderedCoding
+                    .Where(ev => !usedForRepo.Contains(ev))
+                    .ToList();
+                var anyAvailable = orderedEvents
+                    .Where(ev => !usedForRepo.Contains(ev))
+                    .ToList();
+
+                var fallback = FindBestInWindow(commit, codingAvailable, window)
+                    ?? FindBestInWindow(commit, anyAvailable, window);
                 if (fallback is not null)
                     matches.Add(fallback);
             }
 
             foreach (var match in matches.Distinct())
+            {
                 match.LinkedCommits.Add(commit);
+                usedForRepo.Add(match);
+            }
 
             associations.Add(new CommitAssociation(commit, matches));
         }
