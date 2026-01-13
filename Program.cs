@@ -12,7 +12,7 @@ using WorkDailyReport.Calendar;
 
 var logFilePath = Path.Combine("logs", "dotnet-run.log");
 Directory.CreateDirectory(Path.GetDirectoryName(logFilePath)!);
-var logFileStream = new FileStream(logFilePath, FileMode.Append, FileAccess.Write, FileShare.Read);
+var logFileStream = new FileStream(logFilePath, FileMode.Create, FileAccess.Write, FileShare.Read);
 var logFileWriter = new StreamWriter(logFileStream) { AutoFlush = true };
 var consoleOut = Console.Out;
 var consoleError = Console.Error;

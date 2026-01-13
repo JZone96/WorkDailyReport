@@ -42,10 +42,15 @@ public sealed class DailyRunner
         }
 
         var preferredWatchers = _opt.ActivityWatch.Watchers ?? new List<string>();
-        var windowBucket = buckets.FirstOrDefault(b =>
-            preferredWatchers.Any(w => b.Id.Contains(w, StringComparison.OrdinalIgnoreCase)))
-            ?? buckets.FirstOrDefault(b => b.Id.Contains("aw-watcher-window", StringComparison.OrdinalIgnoreCase));
-        var afkBucket = buckets.FirstOrDefault(b => b.Id.Contains("aw-watcher-afk", StringComparison.OrdinalIgnoreCase));
+        var windowWatcherIds = preferredWatchers
+            .Where(w => !w.Contains("afk", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        if (windowWatcherIds.Count == 0)
+            windowWatcherIds.AddRange(new[] { "aw-watcher-window", "aw-watcher-web" });
+
+        var windowBucket = FindBucketByPriority(buckets, windowWatcherIds)
+            ?? FindBucketByPriority(buckets, new List<string> { "aw-watcher-window", "aw-watcher-web" });
+        var afkBucket = FindBucketByPriority(buckets, new List<string> { "aw-watcher-afk" });
 
         if (windowBucket is null)
         {
@@ -54,6 +59,8 @@ public sealed class DailyRunner
         }
 
         Console.WriteLine($"Intervallo (AW): {since:yyyy-MM-dd HH:mm zzz}  →  {untilExclusive:yyyy-MM-dd HH:mm zzz} (fine esclusiva)");
+        Console.WriteLine($"Bucket window: {windowBucket.Id}");
+        Console.WriteLine($"Bucket AFK: {(afkBucket is null ? "n/a" : afkBucket.Id)}");
 
         // ActivityWatch: stessi since/until (fine esclusiva)
         var events = await _aw.GetEventsAsync(windowBucket.Id, since, untilExclusive, ct);
@@ -64,7 +71,7 @@ public sealed class DailyRunner
             _opt.Editors.RecognizedApps ?? new List<string>(),
             dataTimeZone);
 
-        foreach (var ev in normalizedEvents.Take(10))
+        foreach (var ev in normalizedEvents)
         {
             var localStart = AdjustToTimeZone(ev.TsStart, dataTimeZone);
             var localEnd = AdjustToTimeZone(ev.TsEnd, dataTimeZone);
@@ -79,7 +86,7 @@ public sealed class DailyRunner
             normalizedAfkEvents = NormalizeAfkEvents(afkRaw, dataTimeZone);
             normalizedAfkEvents = MergeAfkEvents(normalizedAfkEvents, _opt.Filters.MergeGapSeconds);
             Console.WriteLine($"Eventi AFK: {normalizedAfkEvents.Count}");
-            foreach (var afk in normalizedAfkEvents.Take(5))
+            foreach (var afk in normalizedAfkEvents)
             {
                 Console.WriteLine($"- AFK {afk.TsStart:t}-{afk.TsEnd:t} ({afk.Duration.TotalMinutes:F0} min)");
             }
@@ -109,7 +116,7 @@ public sealed class DailyRunner
 
         var calendarEvents = await _calendarSource.GetEventsAsync(since, untilExclusive, ct);
         Console.WriteLine($"Eventi calendario Outlook: {calendarEvents.Count}");
-        foreach (var cal in calendarEvents.Take(10))
+        foreach (var cal in calendarEvents)
         {
             var calStartLocal = AdjustToTimeZone(cal.Start, dataTimeZone);
             var calEndLocal = AdjustToTimeZone(cal.End, dataTimeZone);
@@ -200,7 +207,7 @@ public sealed class DailyRunner
         var uniformRows = BuildUniformRows(normalizedEvents, commits);
         Console.WriteLine();
         Console.WriteLine("Eventi normalizzati (schema ts_start/ts_end/duration/app/title/url):");
-        foreach (var row in uniformRows.Take(10))
+        foreach (var row in uniformRows)
         {
             var startLocal = AdjustToTimeZone(row.TsStart, dataTimeZone);
             var endLocal = AdjustToTimeZone(row.TsEnd, dataTimeZone);
@@ -276,6 +283,24 @@ public sealed class DailyRunner
         var gitUntil = new DateTimeOffset(gitUntilLocal, tz.GetUtcOffset(gitUntilLocal));
 
         return (since, untilExclusive, gitSince, gitUntil, startDo, endDo);
+    }
+
+    private static BucketDto? FindBucketByPriority(
+        IReadOnlyList<BucketDto> buckets,
+        IReadOnlyList<string> watcherIds)
+    {
+        foreach (var watcherId in watcherIds)
+        {
+            if (string.IsNullOrWhiteSpace(watcherId))
+                continue;
+
+            var match = buckets.FirstOrDefault(b =>
+                b.Id.Contains(watcherId, StringComparison.OrdinalIgnoreCase));
+            if (match is not null)
+                return match;
+        }
+
+        return null;
     }
     private static List<NormalizedEvent> NormalizeWindowEvents(
         IReadOnlyList<EventDto> awEvents,
