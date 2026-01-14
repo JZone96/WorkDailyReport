@@ -242,8 +242,8 @@ public sealed class DailyRunner
             var spanStart = assoc.EditorEvents.Min(e => e.TsStart);
             var spanEnd = assoc.EditorEvents.Max(e => e.TsEnd);
             var spanMinutes = (spanEnd - spanStart).TotalMinutes;
-            Console.WriteLine($"      Totale: {FormatMinutes(totalMinutes)}");
-            Console.WriteLine($"      Finestra: {FormatMinutes(spanMinutes)}");
+            Console.WriteLine($"      Totale: {FormatMinutes(totalMinutes)} ({Math.Round(totalMinutes):F0} min)");
+            Console.WriteLine($"      Finestra: {FormatMinutes(spanMinutes)} ({Math.Round(spanMinutes):F0} min)");
         }
 
     }
