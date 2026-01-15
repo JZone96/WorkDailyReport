@@ -6,6 +6,7 @@ using System.Globalization;
 using System.Linq;
 using WorkDailyReport.Calendar;
 using System.Text.RegularExpressions;
+using System.Text.Json;
 
 namespace WorkDailyReport.ETL;
 
@@ -163,6 +164,12 @@ public sealed class DailyRunner
                 projectTitles,
                 TimeSpan.FromMinutes(browserGapMinutes));
             TagEventsWithProjectBlocks(normalizedEvents, browserBlocks);
+            WriteBrowserTitleAssociationsJson(
+                projectTitles,
+                normalizedEvents,
+                startDateOnly,
+                endDateOnly,
+                ResolveReportsDir(_opt));
         }
 
         Console.WriteLine();
@@ -261,6 +268,13 @@ public sealed class DailyRunner
             Console.WriteLine($"      Finestra: {FormatMinutes(spanMinutes)} ({Math.Round(spanMinutes):F0} min)");
         }
 
+        WriteCommitAssociationsJson(
+            associations,
+            since,
+            untilExclusive,
+            startDateOnly,
+            endDateOnly,
+            ResolveReportsDir(_opt));
     }
 
     private static (DateTimeOffset since, DateTimeOffset untilExclusive, DateTimeOffset gitSince, DateTimeOffset gitUntil, DateOnly startDate, DateOnly endDate)
@@ -1272,5 +1286,133 @@ public sealed class DailyRunner
             if (Label == DefaultLabel)
                 Label = candidate;
         }
+    }
+
+    private static string ResolveReportsDir(WorkReportOptions options)
+    {
+        var reportDir = options.Output.ReportsFolder;
+        if (string.IsNullOrWhiteSpace(reportDir))
+            reportDir = options.Paths.ReportsDir;
+
+        return string.IsNullOrWhiteSpace(reportDir) ? "reports" : reportDir;
+    }
+
+    private static void WriteCommitAssociationsJson(
+        IReadOnlyList<CommitAssociation> associations,
+        DateTimeOffset since,
+        DateTimeOffset untilExclusive,
+        DateOnly startDate,
+        DateOnly endDate,
+        string reportsDir)
+    {
+        var dateLabel = startDate == endDate
+            ? startDate.ToString("yyyy-MM-dd")
+            : $"{startDate:yyyy-MM-dd}_to_{endDate:yyyy-MM-dd}";
+
+        Directory.CreateDirectory(reportsDir);
+        var path = Path.Combine(reportsDir, $"commit-associations-{dateLabel}.json");
+
+        var payload = new
+        {
+            generatedAt = DateTimeOffset.Now,
+            window = new { start = since, endExclusive = untilExclusive },
+            associations = associations.Select(a =>
+            {
+                var totalMinutes = a.EditorEvents.Sum(e => e.Duration.TotalMinutes);
+                var spanStart = a.EditorEvents.Count > 0 ? a.EditorEvents.Min(e => e.TsStart) : (DateTimeOffset?)null;
+                var spanEnd = a.EditorEvents.Count > 0 ? a.EditorEvents.Max(e => e.TsEnd) : (DateTimeOffset?)null;
+                var spanMinutes = spanStart.HasValue && spanEnd.HasValue
+                    ? (spanEnd.Value - spanStart.Value).TotalMinutes
+                    : 0;
+
+                return new
+                {
+                    commit = new
+                    {
+                        a.Commit.Timestamp,
+                        a.Commit.RepoName,
+                        a.Commit.RepoPath,
+                        a.Commit.Hash,
+                        a.Commit.Author,
+                        a.Commit.Message
+                    },
+                    editorEvents = a.EditorEvents.Select(e => new
+                    {
+                        e.TsStart,
+                        e.TsEnd,
+                        durationSeconds = Math.Max(0, e.Duration.TotalSeconds),
+                        e.App,
+                        e.Title,
+                        e.Url,
+                        e.Source,
+                        e.Kind,
+                        e.ProjectTag
+                    }),
+                    totals = new { minutes = totalMinutes },
+                    span = new { start = spanStart, end = spanEnd, minutes = spanMinutes }
+                };
+            })
+        };
+
+        var jsonOptions = new JsonSerializerOptions
+        {
+            WriteIndented = true
+        };
+        var json = JsonSerializer.Serialize(payload, jsonOptions);
+        File.WriteAllText(path, json);
+    }
+
+    private static void WriteBrowserTitleAssociationsJson(
+        IReadOnlyDictionary<string, string> projectTitles,
+        IReadOnlyList<NormalizedEvent> events,
+        DateOnly startDate,
+        DateOnly endDate,
+        string reportsDir)
+    {
+        var dateLabel = startDate == endDate
+            ? startDate.ToString("yyyy-MM-dd")
+            : $"{startDate:yyyy-MM-dd}_to_{endDate:yyyy-MM-dd}";
+
+        Directory.CreateDirectory(reportsDir);
+        var path = Path.Combine(reportsDir, $"browser-title-associations-{dateLabel}.json");
+
+        var matched = events
+            .Where(e => IsBrowserApp(e.App) && !string.IsNullOrWhiteSpace(e.Title) && !string.IsNullOrWhiteSpace(e.ProjectTag))
+            .Select(e => new
+            {
+                title = e.Title!,
+                project = e.ProjectTag!,
+                app = e.App,
+                tsStart = e.TsStart,
+                tsEnd = e.TsEnd
+            })
+            .GroupBy(x => new { x.title, x.project, x.app }, StringComparer.OrdinalIgnoreCase)
+            .Select(g => new
+            {
+                g.Key.title,
+                g.Key.project,
+                g.Key.app,
+                samples = g.Take(3).Select(x => new { x.tsStart, x.tsEnd })
+            })
+            .OrderBy(x => x.project)
+            .ThenBy(x => x.title)
+            .ToList();
+
+        var payload = new
+        {
+            generatedAt = DateTimeOffset.Now,
+            projects = projectTitles
+                .OrderBy(kvp => kvp.Key)
+                .Select(kvp => new { project = kvp.Key, title = kvp.Value })
+                .ToList(),
+            matchedTitles = matched
+        };
+
+        var jsonOptions = new JsonSerializerOptions
+        {
+            WriteIndented = true
+        };
+        var json = JsonSerializer.Serialize(payload, jsonOptions);
+        File.WriteAllText(path, json);
     }
 }
