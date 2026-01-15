@@ -882,8 +882,8 @@ public sealed class DailyRunner
             if (string.IsNullOrWhiteSpace(repoName))
                 continue;
 
-            var indexPath = Path.Combine(dir, "index.html");
-            if (!File.Exists(indexPath))
+            var indexPath = FindIndexHtml(dir);
+            if (indexPath is null)
                 continue;
 
             var title = TryReadHtmlTitle(indexPath);
@@ -894,6 +894,72 @@ public sealed class DailyRunner
         }
 
         return titles;
+    }
+
+    private static string? FindIndexHtml(string repoRoot)
+    {
+        var direct = Path.Combine(repoRoot, "index.html");
+        if (File.Exists(direct))
+            return direct;
+
+        var commonPaths = new[]
+        {
+            Path.Combine(repoRoot, "public", "index.html"),
+            Path.Combine(repoRoot, "src", "index.html"),
+            Path.Combine(repoRoot, "app", "index.html"),
+            Path.Combine(repoRoot, "client", "index.html"),
+            Path.Combine(repoRoot, "wwwroot", "index.html")
+        };
+
+        foreach (var path in commonPaths)
+        {
+            if (File.Exists(path))
+                return path;
+        }
+
+        return FindIndexHtmlRecursive(repoRoot, maxDepth: 2);
+    }
+
+    private static string? FindIndexHtmlRecursive(string root, int maxDepth)
+    {
+        var skipDirs = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ".git", "node_modules", "dist", "build", "bin", "obj"
+        };
+
+        var queue = new Queue<(string Path, int Depth)>();
+        queue.Enqueue((root, 0));
+
+        while (queue.Count > 0)
+        {
+            var (current, depth) = queue.Dequeue();
+            if (depth > maxDepth)
+                continue;
+
+            try
+            {
+                foreach (var file in Directory.EnumerateFiles(current, "index.html"))
+                    return file;
+
+                if (depth == maxDepth)
+                    continue;
+
+                foreach (var dir in Directory.EnumerateDirectories(current))
+                {
+                    var name = Path.GetFileName(dir);
+                    if (string.IsNullOrWhiteSpace(name) || skipDirs.Contains(name))
+                        continue;
+
+                    queue.Enqueue((dir, depth + 1));
+                }
+            }
+            catch
+            {
+                continue;
+            }
+        }
+
+        return null;
     }
 
     private static string? TryReadHtmlTitle(string path)
@@ -1039,6 +1105,23 @@ public sealed class DailyRunner
             {
                 match = kvp.Key;
                 matchLen = kvp.Value.Length;
+            }
+        }
+
+        if (match is null)
+        {
+            foreach (var kvp in projectTitles)
+            {
+                var repoName = kvp.Key;
+                if (string.IsNullOrWhiteSpace(repoName))
+                    continue;
+
+                if (title.Contains(repoName, StringComparison.OrdinalIgnoreCase) &&
+                    repoName.Length > matchLen)
+                {
+                    match = repoName;
+                    matchLen = repoName.Length;
+                }
             }
         }
 
