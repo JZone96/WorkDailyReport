@@ -5,6 +5,7 @@ using WorkDailyReport.utils;
 using System.Globalization;
 using System.Linq;
 using WorkDailyReport.Calendar;
+using System.Text.RegularExpressions;
 
 namespace WorkDailyReport.ETL;
 
@@ -149,6 +150,20 @@ public sealed class DailyRunner
         var focusBlocks = BuildFocusBlocks(normalizedEvents);
         var focusBuffer = TimeSpan.FromMinutes(2);
         TagEventsWithFocusBlocks(normalizedEvents, focusBlocks, focusBuffer);
+
+        var projectTitles = BuildProjectTitleIndex(_opt.Paths.ReposRoot);
+        if (projectTitles.Count > 0)
+        {
+            TagBrowserEventsByTitle(normalizedEvents, projectTitles);
+            var browserGapMinutes = _opt.Editors.CommitAssociationWindowMinutes <= 0
+                ? 15
+                : _opt.Editors.CommitAssociationWindowMinutes;
+            var browserBlocks = BuildBrowserProjectBlocks(
+                normalizedEvents,
+                projectTitles,
+                TimeSpan.FromMinutes(browserGapMinutes));
+            TagEventsWithProjectBlocks(normalizedEvents, browserBlocks);
+        }
 
         Console.WriteLine();
         if (focusBlocks.Count == 0)
@@ -855,6 +870,194 @@ public sealed class DailyRunner
         return converted;
     }
 
+    private static Dictionary<string, string> BuildProjectTitleIndex(string reposRoot)
+    {
+        var titles = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (string.IsNullOrWhiteSpace(reposRoot) || !Directory.Exists(reposRoot))
+            return titles;
+
+        foreach (var dir in Directory.EnumerateDirectories(reposRoot))
+        {
+            var repoName = Path.GetFileName(dir);
+            if (string.IsNullOrWhiteSpace(repoName))
+                continue;
+
+            var indexPath = Path.Combine(dir, "index.html");
+            if (!File.Exists(indexPath))
+                continue;
+
+            var title = TryReadHtmlTitle(indexPath);
+            if (string.IsNullOrWhiteSpace(title))
+                continue;
+
+            titles[repoName] = title;
+        }
+
+        return titles;
+    }
+
+    private static string? TryReadHtmlTitle(string path)
+    {
+        try
+        {
+            var html = File.ReadAllText(path);
+            return ExtractHtmlTitle(html);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static string? ExtractHtmlTitle(string html)
+    {
+        if (string.IsNullOrWhiteSpace(html))
+            return null;
+
+        var match = Regex.Match(
+            html,
+            "<title[^>]*>(.*?)</title>",
+            RegexOptions.IgnoreCase | RegexOptions.Singleline);
+
+        if (!match.Success)
+            return null;
+
+        var title = Regex.Replace(match.Groups[1].Value, "\\s+", " ").Trim();
+        return string.IsNullOrWhiteSpace(title) ? null : title;
+    }
+
+    private static void TagBrowserEventsByTitle(
+        List<NormalizedEvent> events,
+        IReadOnlyDictionary<string, string> projectTitles)
+    {
+        foreach (var ev in events)
+        {
+            if (ev.ProjectTag is not null || !IsBrowserApp(ev.App) || string.IsNullOrWhiteSpace(ev.Title))
+                continue;
+
+            var match = MatchProjectByTitle(ev.Title, projectTitles);
+            if (!string.IsNullOrWhiteSpace(match))
+                ev.AssignProject(match);
+        }
+    }
+
+    private static List<ProjectBlock> BuildBrowserProjectBlocks(
+        List<NormalizedEvent> events,
+        IReadOnlyDictionary<string, string> projectTitles,
+        TimeSpan maxGap)
+    {
+        var hits = events
+            .Where(e => IsBrowserApp(e.App) && !string.IsNullOrWhiteSpace(e.Title))
+            .Select(e => (Event: e, Project: MatchProjectByTitle(e.Title!, projectTitles)))
+            .Where(x => !string.IsNullOrWhiteSpace(x.Project))
+            .ToList();
+
+        foreach (var hit in hits)
+        {
+            hit.Event.AssignProject(hit.Project);
+        }
+
+        return hits
+            .GroupBy(x => x.Project!, StringComparer.OrdinalIgnoreCase)
+            .SelectMany(group => BuildBlocksForProject(group.Key, group.Select(x => x.Event), maxGap))
+            .ToList();
+    }
+
+    private static IEnumerable<ProjectBlock> BuildBlocksForProject(
+        string project,
+        IEnumerable<NormalizedEvent> events,
+        TimeSpan maxGap)
+    {
+        var ordered = events
+            .OrderBy(e => e.TsStart)
+            .ToList();
+        if (ordered.Count == 0)
+            return Enumerable.Empty<ProjectBlock>();
+
+        var blocks = new List<ProjectBlock>();
+        var currentStart = ordered[0].TsStart;
+        var currentEnd = ordered[0].TsEnd;
+
+        foreach (var ev in ordered.Skip(1))
+        {
+            var gap = ev.TsStart - currentEnd;
+            if (gap < TimeSpan.Zero)
+                gap = TimeSpan.Zero;
+
+            if (gap <= maxGap)
+            {
+                if (ev.TsEnd > currentEnd)
+                    currentEnd = ev.TsEnd;
+            }
+            else
+            {
+                blocks.Add(new ProjectBlock(project, currentStart, currentEnd));
+                currentStart = ev.TsStart;
+                currentEnd = ev.TsEnd;
+            }
+        }
+
+        blocks.Add(new ProjectBlock(project, currentStart, currentEnd));
+        return blocks;
+    }
+
+    private static void TagEventsWithProjectBlocks(
+        List<NormalizedEvent> events,
+        IReadOnlyList<ProjectBlock> blocks)
+    {
+        if (blocks.Count == 0)
+            return;
+
+        foreach (var block in blocks)
+        {
+            foreach (var ev in events)
+            {
+                if (ev.ProjectTag is not null)
+                    continue;
+
+                if (ev.TsEnd <= block.Start || ev.TsStart >= block.End)
+                    continue;
+
+                ev.AssignProject(block.Project);
+            }
+        }
+    }
+
+    private static string? MatchProjectByTitle(
+        string title,
+        IReadOnlyDictionary<string, string> projectTitles)
+    {
+        string? match = null;
+        var matchLen = 0;
+        foreach (var kvp in projectTitles)
+        {
+            if (string.IsNullOrWhiteSpace(kvp.Value))
+                continue;
+
+            if (title.Contains(kvp.Value, StringComparison.OrdinalIgnoreCase) &&
+                kvp.Value.Length > matchLen)
+            {
+                match = kvp.Key;
+                matchLen = kvp.Value.Length;
+            }
+        }
+
+        return match;
+    }
+
+    private static bool IsBrowserApp(string? app)
+    {
+        if (string.IsNullOrWhiteSpace(app))
+            return false;
+
+        return app.Contains("chrome", StringComparison.OrdinalIgnoreCase)
+            || app.Contains("msedge", StringComparison.OrdinalIgnoreCase)
+            || app.Contains("edge", StringComparison.OrdinalIgnoreCase)
+            || app.Contains("firefox", StringComparison.OrdinalIgnoreCase)
+            || app.Contains("brave", StringComparison.OrdinalIgnoreCase)
+            || app.Contains("opera", StringComparison.OrdinalIgnoreCase);
+    }
+
     private static List<FocusBlock> BuildFocusBlocks(List<NormalizedEvent> events)
     {
         var coding = events
@@ -953,6 +1156,8 @@ public sealed class DailyRunner
         TimeOnly WorkEnd,
         TimeOnly? LunchStart,
         TimeOnly? LunchEnd);
+
+    private sealed record ProjectBlock(string Project, DateTimeOffset Start, DateTimeOffset End);
 
     private sealed class FocusBlock
     {
