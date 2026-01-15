@@ -1382,16 +1382,18 @@ public sealed class DailyRunner
             {
                 title = e.Title!,
                 project = e.ProjectTag!,
-                app = e.App,
+                app = e.App ?? string.Empty,
                 tsStart = e.TsStart,
                 tsEnd = e.TsEnd
             })
-            .GroupBy(x => new { x.title, x.project, x.app }, StringComparer.OrdinalIgnoreCase)
+            .GroupBy(
+                x => $"{x.project}\u001F{x.app}\u001F{x.title}",
+                StringComparer.OrdinalIgnoreCase)
             .Select(g => new
             {
-                g.Key.title,
-                g.Key.project,
-                g.Key.app,
+                project = g.First().project,
+                app = g.First().app,
+                title = g.First().title,
                 samples = g.Take(3).Select(x => new { x.tsStart, x.tsEnd })
             })
             .OrderBy(x => x.project)
