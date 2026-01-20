@@ -247,22 +247,41 @@ public sealed class DailyRunner
         foreach (var assoc in associations)
         {
             var commitLocal = AdjustToTimeZone(assoc.Commit.Timestamp, dataTimeZone);
-            if (assoc.EditorEvents.Count == 0)
+            var orderedEditors = assoc.EditorEvents
+                .OrderBy(e => e.TsStart)
+                .ToList();
+            if (orderedEditors.Count == 0)
             {
                 Console.WriteLine($"  {commitLocal:t} {assoc.Commit.RepoName} {assoc.Commit.Message} — nessun editor rilevato nella giornata (fallback ±{_opt.Editors.CommitAssociationWindowMinutes}m)");
                 continue;
             }
 
             Console.WriteLine($"  {commitLocal:t} {assoc.Commit.RepoName} {assoc.Commit.Message}");
-            foreach (var editor in assoc.EditorEvents)
+            for (var i = 0; i < orderedEditors.Count; i++)
             {
+                var editor = orderedEditors[i];
                 var editorStart = AdjustToTimeZone(editor.TsStart, dataTimeZone);
                 var editorEnd = AdjustToTimeZone(editor.TsEnd, dataTimeZone);
                 Console.WriteLine($"      ↳ {editorStart:t}-{editorEnd:t} {editor.App} | {editor.Title}");
+
+                if (i < orderedEditors.Count - 1)
+                {
+                    var next = orderedEditors[i + 1];
+                    if (next.TsStart > editor.TsEnd)
+                    {
+                        var gapStart = editor.TsEnd;
+                        var gapEnd = next.TsStart;
+                        var gapStartLocal = AdjustToTimeZone(gapStart, dataTimeZone);
+                        var gapEndLocal = AdjustToTimeZone(gapEnd, dataTimeZone);
+                        var gapLabel = DescribeGapActivities(gapStart, gapEnd, normalizedEvents);
+                        var gapMinutes = FormatMinutes((gapEnd - gapStart).TotalMinutes);
+                        Console.WriteLine($"         -> {gapStartLocal:t}-{gapEndLocal:t} ({gapMinutes}) {gapLabel}");
+                    }
+                }
             }
-            var totalMinutes = assoc.EditorEvents.Sum(e => e.Duration.TotalMinutes);
-            var spanStart = assoc.EditorEvents.Min(e => e.TsStart);
-            var spanEnd = assoc.EditorEvents.Max(e => e.TsEnd);
+            var totalMinutes = orderedEditors.Sum(e => e.Duration.TotalMinutes);
+            var spanStart = orderedEditors.Min(e => e.TsStart);
+            var spanEnd = orderedEditors.Max(e => e.TsEnd);
             var spanMinutes = (spanEnd - spanStart).TotalMinutes;
             Console.WriteLine($"      Totale: {FormatMinutes(totalMinutes)} ({Math.Round(totalMinutes):F0} min)");
             Console.WriteLine($"      Finestra: {FormatMinutes(spanMinutes)} ({Math.Round(spanMinutes):F0} min)");
@@ -329,6 +348,44 @@ public sealed class DailyRunner
             return $"{(int)ts.TotalHours}h {ts.Minutes}m";
         return $"{ts.Minutes}m";
     }
+
+    private static string DescribeGapActivities(
+        DateTimeOffset gapStart,
+        DateTimeOffset gapEnd,
+        IReadOnlyList<NormalizedEvent> events)
+    {
+        var overlap = events
+            .Where(ev => ev.TsStart < gapEnd && ev.TsEnd > gapStart)
+            .ToList();
+
+        if (overlap.Count == 0)
+            return "nessuna attivita rilevata";
+
+        var hasAfk = overlap.Any(IsAfkEvent);
+        var apps = overlap
+            .Where(ev => !IsAfkEvent(ev) && !IsGapNoise(ev))
+            .Select(ev => ev.App)
+            .Where(app => !string.IsNullOrWhiteSpace(app))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (hasAfk && apps.Count > 0)
+            return $"AFK + app: {string.Join(", ", apps)}";
+        if (hasAfk)
+            return "AFK";
+        if (apps.Count > 0)
+            return $"app: {string.Join(", ", apps)}";
+
+        return "nessuna attivita rilevata";
+    }
+
+    private static bool IsAfkEvent(NormalizedEvent ev) =>
+        ev.Kind.Equals("AFK", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(ev.App, "AFK", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsGapNoise(NormalizedEvent ev) =>
+        ev.Kind.Equals("Reminder", StringComparison.OrdinalIgnoreCase)
+        || ev.Source.Equals("Scheduler", StringComparison.OrdinalIgnoreCase);
 
     private static BucketDto? FindBucketByPriority(
         IReadOnlyList<BucketDto> buckets,
