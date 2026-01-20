@@ -271,11 +271,13 @@ public sealed class DailyRunner
                     {
                         var gapStart = editor.TsEnd;
                         var gapEnd = next.TsStart;
+                        var gapRoundedMinutes = RoundMinutes((gapEnd - gapStart).TotalMinutes);
+                        if (gapRoundedMinutes == 0)
+                            continue;
                         var gapStartLocal = AdjustToTimeZone(gapStart, dataTimeZone);
                         var gapEndLocal = AdjustToTimeZone(gapEnd, dataTimeZone);
                         var gapLabel = DescribeGapActivities(gapStart, gapEnd, normalizedEvents);
-                        var gapMinutes = FormatMinutes((gapEnd - gapStart).TotalMinutes);
-                        Console.WriteLine($"         -> {gapStartLocal:t}-{gapEndLocal:t} ({gapMinutes}) {gapLabel}");
+                        Console.WriteLine($"         -> {gapStartLocal:t}-{gapEndLocal:t} ({FormatMinutes(gapRoundedMinutes)}) {gapLabel}");
                     }
                 }
             }
@@ -342,12 +344,15 @@ public sealed class DailyRunner
 
     private static string FormatMinutes(double minutes)
     {
-        var rounded = Math.Max(0, (int)Math.Round(minutes));
+        var rounded = RoundMinutes(minutes);
         var ts = TimeSpan.FromMinutes(rounded);
         if (ts.TotalHours >= 1)
             return $"{(int)ts.TotalHours}h {ts.Minutes}m";
         return $"{ts.Minutes}m";
     }
+
+    private static int RoundMinutes(double minutes) =>
+        Math.Max(0, (int)Math.Round(minutes));
 
     private static string DescribeGapActivities(
         DateTimeOffset gapStart,
