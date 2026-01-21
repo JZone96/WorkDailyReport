@@ -301,11 +301,13 @@ public sealed class DailyRunner
             Console.WriteLine($"      Totale (incl. non associabili): {FormatMinutes(totalWithGaps)} ({Math.Round(totalWithGaps):F0} min)");
             if (gapLines.Count > 0)
             {
-                var topGaps = gapLines
+                var longGaps = gapLines
+                    .Where(g => g.Minutes > 10)
                     .OrderByDescending(g => g.Minutes)
-                    .Take(3)
-                    .Select(g => $"{FormatMinutes(g.Minutes)} {g.Label}");
-                Console.WriteLine($"      Top non associabili: {string.Join("; ", topGaps)}");
+                    .Select(g => $"{FormatMinutes(g.Minutes)} {g.Label}")
+                    .ToList();
+                if (longGaps.Count > 0)
+                    Console.WriteLine($"      Non associabili >10m: {string.Join("; ", longGaps)}");
             }
             Console.WriteLine($"      Non associabili: {FormatMinutes(gapMinutesTotal)} ({Math.Round(gapMinutesTotal):F0} min)");
             Console.WriteLine($"      Finestra: {FormatMinutes(spanMinutes)} ({Math.Round(spanMinutes):F0} min)");
