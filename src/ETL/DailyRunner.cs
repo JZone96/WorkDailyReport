@@ -257,6 +257,7 @@ public sealed class DailyRunner
             }
 
             Console.WriteLine($"  {commitLocal:t} {assoc.Commit.RepoName} {assoc.Commit.Message}");
+            var gapMinutesTotal = 0.0;
             for (var i = 0; i < orderedEditors.Count; i++)
             {
                 var editor = orderedEditors[i];
@@ -274,6 +275,7 @@ public sealed class DailyRunner
                         var gapRoundedMinutes = RoundMinutes((gapEnd - gapStart).TotalMinutes);
                         if (gapRoundedMinutes == 0)
                             continue;
+                        gapMinutesTotal += gapRoundedMinutes;
                         var gapStartLocal = AdjustToTimeZone(gapStart, dataTimeZone);
                         var gapEndLocal = AdjustToTimeZone(gapEnd, dataTimeZone);
                         var gapLabel = DescribeGapActivities(gapStart, gapEnd, normalizedEvents);
@@ -282,10 +284,12 @@ public sealed class DailyRunner
                 }
             }
             var totalMinutes = orderedEditors.Sum(e => e.Duration.TotalMinutes);
+            var totalWithGaps = totalMinutes + gapMinutesTotal;
             var spanStart = orderedEditors.Min(e => e.TsStart);
             var spanEnd = orderedEditors.Max(e => e.TsEnd);
             var spanMinutes = (spanEnd - spanStart).TotalMinutes;
-            Console.WriteLine($"      Totale: {FormatMinutes(totalMinutes)} ({Math.Round(totalMinutes):F0} min)");
+            Console.WriteLine($"      Totale (incl. non associabili): {FormatMinutes(totalWithGaps)} ({Math.Round(totalWithGaps):F0} min)");
+            Console.WriteLine($"      Non associabili: {FormatMinutes(gapMinutesTotal)} ({Math.Round(gapMinutesTotal):F0} min)");
             Console.WriteLine($"      Finestra: {FormatMinutes(spanMinutes)} ({Math.Round(spanMinutes):F0} min)");
         }
 
