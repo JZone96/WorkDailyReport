@@ -5,9 +5,9 @@ ReposRoot cfg: D:\Projects
 [40m[32minfo[39m[22m[49m: System.Net.Http.HttpClient.IActivityWatchClient.ClientHandler[100]
       Sending HTTP request GET http://127.0.0.1:5600/api/0/buckets
 [40m[32minfo[39m[22m[49m: System.Net.Http.HttpClient.IActivityWatchClient.ClientHandler[101]
-      Received HTTP response headers after 79.7702ms - 200
+      Received HTTP response headers after 77.5168ms - 200
 [40m[32minfo[39m[22m[49m: System.Net.Http.HttpClient.IActivityWatchClient.LogicalHandler[101]
-      End processing HTTP request after 92.8044ms - 200
+      End processing HTTP request after 90.7851ms - 200
 Intervallo (AW): 2026-01-20 09:00 +01:00  →  2026-01-20 18:01 +01:00 (fine esclusiva)
 Bucket window: aw-watcher-window_LENOVO
 Bucket AFK: aw-watcher-afk_LENOVO
@@ -16,9 +16,9 @@ Bucket AFK: aw-watcher-afk_LENOVO
 [40m[32minfo[39m[22m[49m: System.Net.Http.HttpClient.IActivityWatchClient.ClientHandler[100]
       Sending HTTP request GET http://127.0.0.1:5600/api/0/buckets/aw-watcher-window_LENOVO/events?start=2026-01-20T09%3A00%3A00.0000000%2B01%3A00&end=2026-01-20T18%3A01%3A00.0000000%2B01%3A00
 [40m[32minfo[39m[22m[49m: System.Net.Http.HttpClient.IActivityWatchClient.ClientHandler[101]
-      Received HTTP response headers after 265.6598ms - 200
+      Received HTTP response headers after 218.0467ms - 200
 [40m[32minfo[39m[22m[49m: System.Net.Http.HttpClient.IActivityWatchClient.LogicalHandler[101]
-      End processing HTTP request after 265.8026ms - 200
+      End processing HTTP request after 218.1595ms - 200
 Eventi: 1534
 - 18:00-18:01 ms-teams.exe  | Chat | Lorenzo Tampella | bitkit.it | jason.liberti@bitkit.it | Microsoft Teams
 - 18:00-18:00 chrome.exe  | API MY FIT - Swagger UI - Google Chrome
@@ -1559,9 +1559,9 @@ Eventi: 1534
 [40m[32minfo[39m[22m[49m: System.Net.Http.HttpClient.IActivityWatchClient.ClientHandler[100]
       Sending HTTP request GET http://127.0.0.1:5600/api/0/buckets/aw-watcher-afk_LENOVO/events?start=2026-01-20T09%3A00%3A00.0000000%2B01%3A00&end=2026-01-20T18%3A01%3A00.0000000%2B01%3A00
 [40m[32minfo[39m[22m[49m: System.Net.Http.HttpClient.IActivityWatchClient.ClientHandler[101]
-      Received HTTP response headers after 36.2305ms - 200
+      Received HTTP response headers after 13.065ms - 200
 [40m[32minfo[39m[22m[49m: System.Net.Http.HttpClient.IActivityWatchClient.LogicalHandler[101]
-      End processing HTTP request after 36.3147ms - 200
+      End processing HTTP request after 13.1373ms - 200
 Eventi AFK: 9
 - AFK 09:00-09:00 (0 min)
 - AFK 09:30-09:41 (11 min)
@@ -1583,9 +1583,9 @@ Repo Fit-App-FRONTEND (4 commit)
 [40m[32minfo[39m[22m[49m: System.Net.Http.HttpClient.OutlookCalendarSource.ClientHandler[100]
       Sending HTTP request GET https://outlook.office365.com/owa/calendar/1d86d17c42c64c5d82182fff7a7c0f70@bitkit.it/aaf0e4fff38846a0a33dedbbd9fc327014404398204439414006/calendar.ics
 [40m[32minfo[39m[22m[49m: System.Net.Http.HttpClient.OutlookCalendarSource.ClientHandler[101]
-      Received HTTP response headers after 358.3288ms - 200
+      Received HTTP response headers after 784.241ms - 200
 [40m[32minfo[39m[22m[49m: System.Net.Http.HttpClient.OutlookCalendarSource.LogicalHandler[101]
-      End processing HTTP request after 358.428ms - 200
+      End processing HTTP request after 784.3952ms - 200
 Eventi calendario Outlook: 0
 
 Blocchi focus guidati dall'IDE:
@@ -1986,7 +1986,8 @@ Eventi normalizzati (schema ts_start/ts_end/duration/app/title/url):
 Associazioni commit ↔ editor:
   08:53 Fit-App-FRONTEND iscrizione tornei e implementate correzioni doc Enrico
       ↳ 09:00-09:07 Code.exe | ● eppppppppppppppppppppppppppppppppppppppp • Untitled-1 - Fit-App-FRONTEND - Visual Studio Code [Administrator]
-      Totale: 8m (8 min)
+      Totale (incl. non associabili): 8m (8 min)
+      Non associabili: 0m (0 min)
       Finestra: 8m (8 min)
   13:02 Fit-App-FRONTEND Regolamento e modal inserimento tennis clash id da interfaccia
       ↳ 09:07-09:08 Code.exe | Untitled-1 - Fit-App-FRONTEND - Visual Studio Code [Administrator]
@@ -2105,11 +2106,13 @@ Associazioni commit ↔ editor:
       ↳ 12:20-12:20 Code.exe | ModalInserimentoLinkInvito.vue - Fit-App-FRONTEND - Visual Studio Code [Administrator]
          -> 12:20-12:24 (4m) app: chrome.exe
       ↳ 12:24-12:25 Code.exe | ModalInserimentoLinkInvito.vue - Fit-App-FRONTEND - Visual Studio Code [Administrator]
-      Totale: 52m (52 min)
+      Totale (incl. non associabili): 3h 11m (191 min)
+      Non associabili: 2h 19m (139 min)
       Finestra: 3h 18m (198 min)
   13:19 Fit-App-FRONTEND Eseguita sottrazione per avere il tempo di registrazione massimo
       ↳ 13:25-13:25 Scheduler | Promemoria: tra 5 minuti finisce la pausa pranzo
-      Totale: 0m (0 min)
+      Totale (incl. non associabili): 0m (0 min)
+      Non associabili: 0m (0 min)
       Finestra: 0m (0 min)
   17:36 Fit-App-FRONTEND SIstemata visualizzazione avatar in dettaglio giocatore, filtri su lista tornei
       ↳ 14:35-14:35 Code.exe | MenuFooter.vue - Fit-App-FRONTEND - Visual Studio Code [Administrator]
@@ -2169,5 +2172,6 @@ Associazioni commit ↔ editor:
       ↳ 17:31-17:31 Code.exe | FooterRegistrazioneButtons.vue - Fit-App-FRONTEND - Visual Studio Code [Administrator]
          -> 17:31-17:35 (3m) app: ms-teams.exe, olk.exe
       ↳ 17:35-17:36 Code.exe | FooterRegistrazioneButtons.vue - Fit-App-FRONTEND - Visual Studio Code [Administrator]
-      Totale: 40m (40 min)
+      Totale (incl. non associabili): 2h 59m (179 min)
+      Non associabili: 2h 19m (139 min)
       Finestra: 3h 1m (181 min)

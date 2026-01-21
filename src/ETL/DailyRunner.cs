@@ -258,6 +258,7 @@ public sealed class DailyRunner
 
             Console.WriteLine($"  {commitLocal:t} {assoc.Commit.RepoName} {assoc.Commit.Message}");
             var gapMinutesTotal = 0.0;
+            var gapLines = new List<string>();
             for (var i = 0; i < orderedEditors.Count; i++)
             {
                 var editor = orderedEditors[i];
@@ -279,9 +280,15 @@ public sealed class DailyRunner
                         var gapStartLocal = AdjustToTimeZone(gapStart, dataTimeZone);
                         var gapEndLocal = AdjustToTimeZone(gapEnd, dataTimeZone);
                         var gapLabel = DescribeGapActivities(gapStart, gapEnd, normalizedEvents);
-                        Console.WriteLine($"         -> {gapStartLocal:t}-{gapEndLocal:t} ({FormatMinutes(gapRoundedMinutes)}) {gapLabel}");
+                        gapLines.Add($"         -> {gapStartLocal:t}-{gapEndLocal:t} ({FormatMinutes(gapRoundedMinutes)}) {gapLabel}");
                     }
                 }
+            }
+            if (gapLines.Count > 0)
+            {
+                Console.WriteLine("      Non associabili:");
+                foreach (var gapLine in gapLines)
+                    Console.WriteLine(gapLine);
             }
             var totalMinutes = orderedEditors.Sum(e => e.Duration.TotalMinutes);
             var totalWithGaps = totalMinutes + gapMinutesTotal;
